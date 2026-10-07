@@ -76,6 +76,38 @@ def complete_download_file(job, base, auth):
         request(base+"/api/agent/jobs/"+str(job["id"])+"/complete",
                 {"status":"failed","error":str(e)},auth)
 
+def complete_upload_file(job, base, auth):
+    p=job.get("payload") or {}
+    root=str(p.get("document_root",""))
+    relative=str(p.get("path","")).strip("/")
+    name=str(p.get("name") or "").strip()
+    try:
+        domain=root[len("/var/www/"):] if root.startswith("/var/www/") else ""
+        if not valid_domain(domain) or root != "/var/www/"+domain:
+            raise ValueError("Invalid website root.")
+        if not name or "/" in name or "\\" in name or name in {".",".."}:
+            raise ValueError("Invalid file name.")
+        root_path,target=safe_website_path(root,relative)
+        if not target.exists() or not target.is_dir():
+            raise ValueError("Destination directory not found.")
+        destination=(target/name).resolve()
+        if root_path not in destination.parents:
+            raise ValueError("Invalid destination.")
+        if destination.exists():
+            raise ValueError("A file with that name already exists.")
+        import base64
+        raw=base64.b64decode(str(p.get("content_base64","")), validate=True)
+        if len(raw) > 5 * 1024 * 1024:
+            raise ValueError("Upload exceeds the 5 MB Agent limit.")
+        destination.write_bytes(raw)
+        request(base+"/api/agent/jobs/"+str(job["id"])+"/complete", {
+            "status":"completed",
+            "result":{"operation":"upload","path":str(destination.relative_to(root_path)),"name":name,"size":len(raw)}
+        }, auth)
+    except Exception as e:
+        request(base+"/api/agent/jobs/"+str(job["id"])+"/complete",
+                {"status":"failed","error":str(e)},auth)
+
 def complete_file_operation(job, base, auth):
     p=job.get("payload") or {}
     root=str(p.get("document_root",""))
@@ -91,8 +123,8 @@ def complete_file_operation(job, base, auth):
             raise ValueError("Unsupported file operation.")
 
         root_path,target=safe_website_path(root,relative)
-        if operation in {"create_folder","create_file"}:
-            if not name or "/" in name or name in {".",".."}:
+        if operation in {"create_folder","create_file","write_file"}:
+            if not name or "/" in name or "\\" in name or name in {".",".."}:
                 raise ValueError("Invalid name.")
             parent=target
             if not parent.exists() or not parent.is_dir():
@@ -100,12 +132,20 @@ def complete_file_operation(job, base, auth):
             destination=(parent/name).resolve()
             if root_path not in destination.parents:
                 raise ValueError("Invalid destination.")
-            if destination.exists():
-                raise ValueError("An item with that name already exists.")
-            if operation=="create_folder":
-                destination.mkdir()
+            if operation=="write_file":
+                content=str(p.get("content","")).encode("utf-8")
+                if len(content) > 512 * 1024:
+                    raise ValueError("Text editor is limited to 512 KB.")
+                if not destination.exists() or not destination.is_file():
+                    raise ValueError("File not found.")
+                destination.write_bytes(content)
             else:
-                destination.touch()
+                if destination.exists():
+                    raise ValueError("An item with that name already exists.")
+                if operation=="create_folder":
+                    destination.mkdir()
+                else:
+                    destination.touch()
             result={"operation":operation,"path":str(destination.relative_to(root_path))}
         elif operation=="rename":
             if not name or "/" in name or name in {".",".."} or not new_name or "/" in new_name or new_name in {".",".."}:
@@ -285,6 +325,8 @@ while True:
                 complete_file_operation(job, base, auth)
             elif job["type"] == "download_file":
                 complete_download_file(job, base, auth)
+            elif job["type"] == "upload_file":
+                complete_upload_file(job, base, auth)
             else:
                 result={"message":"Operation not implemented by this Agent version."}
                 request(base+"/api/agent/jobs/"+str(job["id"])+"/complete",
