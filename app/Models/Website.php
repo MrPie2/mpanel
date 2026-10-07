@@ -4,6 +4,7 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class Website extends Model
 {
@@ -19,4 +20,6 @@ class Website extends Model
     }
 
     public function server(): BelongsTo { return $this->belongsTo(Server::class); }
+
+    public function dnsRecords(): HasMany { return $this->hasMany(DnsRecord::class); }
 }
