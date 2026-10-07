@@ -52,6 +52,7 @@ class WebsiteController extends Controller
                 'website_id' => $website->id,
                 'domain' => $website->domain,
                 'document_root' => $website->document_root,
+                'php_version' => $website->php_version,
                 'email' => $data['email'],
             ],
         ]);
