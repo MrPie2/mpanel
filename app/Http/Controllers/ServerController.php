@@ -13,9 +13,9 @@ use Illuminate\View\View;
 
 class ServerController extends Controller
 {
-    public function index(): View
+    public function index(Request $request): View
     {
-        return view('servers.index', ['servers'=>Server::latest()->paginate(12)]);
+        return view('servers.index', ['servers'=>$request->user()->servers()->latest()->paginate(12)]);
     }
 
     public function create(): View { return view('servers.create'); }
@@ -36,10 +36,15 @@ class ServerController extends Controller
         return redirect()->route('servers.show',$server)->with('agent_token',$plainToken)->with('success','Server added. Copy the pairing token now and install the mPanel Agent.');
     }
 
-    public function show(Server $server): View { return view('servers.show', compact('server')); }
-
-    public function destroy(Server $server): RedirectResponse
+    public function show(Request $request, Server $server): View
     {
+        abort_unless($server->user_id === $request->user()->id, 403);
+        return view('servers.show', compact('server'));
+    }
+
+    public function destroy(Request $request, Server $server): RedirectResponse
+    {
+        abort_unless($server->user_id === $request->user()->id, 403);
         $server->delete();
         return redirect()->route('servers.index')->with('success','Server removed from mPanel.');
     }
