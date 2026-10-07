@@ -4,6 +4,7 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class Server extends Model
 {
@@ -12,6 +13,11 @@ class Server extends Model
     protected function casts(): array
     {
         return ['last_seen_at'=>'datetime','pairing_token_expires_at'=>'datetime','agent_paired_at'=>'datetime','cpu_percent'=>'decimal:2','memory_percent'=>'decimal:2','disk_percent'=>'decimal:2'];
+    }
+
+    public function websites(): HasMany
+    {
+        return $this->hasMany(Website::class);
     }
 
     public function owner(): BelongsTo
