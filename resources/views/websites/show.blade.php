@@ -17,7 +17,7 @@
 </div>
 
 <div class="mp-grid" style="grid-template-columns:repeat(auto-fit,minmax(220px,1fr))">
-    <a class="mp-card" href="#" style="text-decoration:none;color:inherit"><div style="font-size:24px;margin-bottom:12px">▣</div><strong>File Manager</strong><div class="mp-sub">Manage website files and directories.</div></a>
+    <a class="mp-card" href="{{ route('websites.files',$website) }}" style="text-decoration:none;color:inherit"><div style="font-size:24px;margin-bottom:12px">▣</div><strong>File Manager</strong><div class="mp-sub">Manage website files and directories.</div></a>
     <a class="mp-card" href="#" style="text-decoration:none;color:inherit"><div style="font-size:24px;margin-bottom:12px">◇</div><strong>SSL</strong><div class="mp-sub">Manage HTTPS certificates.</div></a>
     <a class="mp-card" href="#" style="text-decoration:none;color:inherit"><div style="font-size:24px;margin-bottom:12px">◎</div><strong>DNS</strong><div class="mp-sub">Manage DNS records for this domain.</div></a>
     <a class="mp-card" href="#" style="text-decoration:none;color:inherit"><div style="font-size:24px;margin-bottom:12px">▤</div><strong>Databases</strong><div class="mp-sub">Create and manage website databases.</div></a>
