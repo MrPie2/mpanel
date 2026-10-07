@@ -7,7 +7,7 @@
         <a class="active" href="{{ route('dashboard') }}"><i>▦</i><span>Dashboard</span></a>
         <a href="{{ route('websites.index') }}"><i>◈</i><span>Websites</span></a>
         <a href="#"><i>◎</i><span>Domains</span></a>
-        <a href="#"><i>▤</i><span>Databases</span></a>
+        <a href="{{ route('databases.index') }}"><i>▤</i><span>Databases</span></a>
         <a href="#"><i>◇</i><span>DNS Manager</span></a>
         <a href="#"><i>▣</i><span>SSL Certificates</span></a>
         <a href="#"><i>↗</i><span>Git Deployments</span></a>
