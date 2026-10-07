@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import argparse,json,os,shutil,time,urllib.request
-VERSION="0.2.0"
+VERSION="0.3.0"
+TOKEN_FILE="/opt/mpanel-agent/agent-token"
 def cpu():
     def r():
         with open("/proc/stat") as f: v=list(map(int,f.readline().split()[1:]))
@@ -19,16 +20,26 @@ def post(url,payload,headers=None):
     h={"Content-Type":"application/json","User-Agent":"mPanel-Agent/"+VERSION}; h.update(headers or {})
     req=urllib.request.Request(url,data=json.dumps(payload).encode(),headers=h,method="POST")
     with urllib.request.urlopen(req,timeout=15) as r: return json.loads(r.read().decode())
+def save_token(token):
+    os.makedirs(os.path.dirname(TOKEN_FILE),exist_ok=True)
+    fd=os.open(TOKEN_FILE,os.O_WRONLY|os.O_CREAT|os.O_TRUNC,0o600)
+    with os.fdopen(fd,"w") as f: f.write(token)
+    os.chmod(TOKEN_FILE,0o600)
+def load_token():
+    try:
+        with open(TOKEN_FILE) as f: return f.read().strip()
+    except FileNotFoundError: return ""
 p=argparse.ArgumentParser()
 p.add_argument("--url",required=True); p.add_argument("--server-id",required=True)
 p.add_argument("--pairing-token",default=os.getenv("MPANEL_PAIRING_TOKEN"))
-p.add_argument("--token",default=os.getenv("MPANEL_AGENT_TOKEN")); p.add_argument("--interval",type=int,default=30)
+p.add_argument("--interval",type=int,default=30)
 a=p.parse_args(); base=a.url.rstrip("/")
-token=a.token
+token=load_token()
 if not token:
     if not a.pairing_token: raise SystemExit("Missing pairing token.")
     result=post(base+"/api/agent/pair",{"server_id":int(a.server_id),"pairing_token":a.pairing_token})
-    token=result["agent_token"]
+    token=result["agent_token"]; save_token(token)
+    print("[mPanel] pairing successful; permanent Agent credential saved.",flush=True)
 endpoint=base+"/api/agent/servers/"+a.server_id+"/heartbeat"
 while True:
     try:
