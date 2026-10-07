@@ -20,6 +20,6 @@ class Website extends Model
     }
 
     public function server(): BelongsTo { return $this->belongsTo(Server::class); }
-
     public function dnsRecords(): HasMany { return $this->hasMany(DnsRecord::class); }
+    public function gitDeployment(): \Illuminate\Database\Eloquent\Relations\HasOne { return $this->hasOne(GitDeployment::class); }
 }
