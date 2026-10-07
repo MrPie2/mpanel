@@ -36,11 +36,42 @@ NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
 ProtectHome=true
-ReadWritePaths=/var/www /etc/nginx/sites-available /etc/nginx/sites-enabled
+ReadWritePaths=/var/www /etc/nginx/sites-available /etc/nginx/sites-enabled /etc/letsencrypt /var/lib/letsencrypt /var/log/letsencrypt
 
 [Install]
 WantedBy=multi-user.target
 EOF
+
+
+RENEW_SERVICE="/etc/systemd/system/mpanel-ssl-renew.service"
+RENEW_TIMER="/etc/systemd/system/mpanel-ssl-renew.timer"
+
+cat > "$RENEW_SERVICE" <<'EOF'
+[Unit]
+Description=mPanel Let's Encrypt certificate renewal
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/bin/sh -c 'command -v certbot >/dev/null 2>&1 && certbot renew --quiet --deploy-hook "/bin/systemctl reload nginx" || true'
+EOF
+
+cat > "$RENEW_TIMER" <<'EOF'
+[Unit]
+Description=Daily mPanel SSL certificate renewal check
+
+[Timer]
+OnBootSec=15min
+OnUnitActiveSec=12h
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+EOF
+
+systemctl daemon-reload
+systemctl enable mpanel-ssl-renew.timer
 
 systemctl daemon-reload
 systemctl enable mpanel-agent
