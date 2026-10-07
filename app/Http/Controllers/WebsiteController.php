@@ -27,6 +27,85 @@ class WebsiteController extends Controller
         return view('websites.show', compact('website'));
     }
 
+    public function ssl(Request $request, Website $website): View
+    {
+        $this->authorizeWebsite($request, $website);
+        return view('websites.ssl', compact('website'));
+    }
+
+    public function sslIssue(Request $request, Website $website): JsonResponse
+    {
+        $this->authorizeWebsite($request, $website);
+
+        $data = $request->validate([
+            'email' => ['required', 'email', 'max:255'],
+        ]);
+
+        if ($website->ssl_enabled && $website->ssl_expires_at?->isFuture()) {
+            return response()->json(['message' => 'SSL is already active for this website.'], 422);
+        }
+
+        $job = AgentJob::create([
+            'server_id' => $website->server_id,
+            'type' => 'issue_ssl',
+            'payload' => [
+                'website_id' => $website->id,
+                'domain' => $website->domain,
+                'document_root' => $website->document_root,
+                'email' => $data['email'],
+            ],
+        ]);
+
+        return response()->json(['job_id' => $job->id, 'status' => $job->status], 202);
+    }
+
+    public function sslIssueStatus(Request $request, Website $website, AgentJob $job): JsonResponse
+    {
+        $this->authorizeWebsite($request, $website);
+        abort_unless($job->server_id === $website->server_id && (($job->payload['website_id'] ?? null) === $website->id), 404);
+
+        if ($job->status === 'completed' && ($job->result['ssl_enabled'] ?? false)) {
+            $website->update([
+                'ssl_enabled' => true,
+                'ssl_issued_at' => isset($job->result['issued_at']) ? now()->parse($job->result['issued_at']) : now(),
+                'ssl_expires_at' => isset($job->result['expires_at']) ? now()->parse($job->result['expires_at']) : null,
+            ]);
+        } elseif ($job->status === 'failed' && $website->ssl_enabled && !$website->ssl_expires_at?->isFuture()) {
+            $website->update(['ssl_enabled' => false]);
+        }
+
+        return response()->json(['status' => $job->status, 'result' => $job->result, 'error' => $job->error]);
+    }
+
+    public function sslDisable(Request $request, Website $website): JsonResponse
+    {
+        $this->authorizeWebsite($request, $website);
+
+        $job = AgentJob::create([
+            'server_id' => $website->server_id,
+            'type' => 'disable_ssl',
+            'payload' => [
+                'website_id' => $website->id,
+                'domain' => $website->domain,
+                'document_root' => $website->document_root,
+            ],
+        ]);
+
+        return response()->json(['job_id' => $job->id, 'status' => $job->status], 202);
+    }
+
+    public function sslDisableStatus(Request $request, Website $website, AgentJob $job): JsonResponse
+    {
+        $this->authorizeWebsite($request, $website);
+        abort_unless($job->server_id === $website->server_id && (($job->payload['website_id'] ?? null) === $website->id), 404);
+
+        if ($job->status === 'completed') {
+            $website->update(['ssl_enabled' => false, 'ssl_expires_at' => null]);
+        }
+
+        return response()->json(['status' => $job->status, 'result' => $job->result, 'error' => $job->error]);
+    }
+
     public function files(Request $request, Website $website): View
     {
         $this->authorizeWebsite($request, $website);
