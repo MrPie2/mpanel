@@ -410,6 +410,71 @@ def complete_delete_database(job, base, auth):
         request(base+"/api/agent/jobs/"+str(job["id"])+"/complete",{"status":"completed","result":{"operation":"delete_database","database_name":name,"username":username}},auth)
     except Exception as e:
         request(base+"/api/agent/jobs/"+str(job["id"])+"/complete",{"status":"failed","error":str(e)},auth)
+def dns_zone_path(domain):
+    if not valid_domain(domain):
+        raise ValueError("Invalid DNS domain.")
+    return pathlib.Path("/etc/bind/zones")/(domain+".db")
+
+def dns_escape(value):
+    return str(value).replace("\\","\\\\").replace('"','\\"')
+
+def dns_record_line(record):
+    rtype=str(record.get("type","")).upper()
+    name=str(record.get("name","")).strip()
+    value=str(record.get("value","")).strip()
+    ttl=int(record.get("ttl",3600))
+    priority=record.get("priority")
+    if rtype not in {"A","AAAA","CNAME","MX","TXT","NS"}:
+        raise ValueError("Unsupported DNS record type.")
+    if not name or any(x in name for x in ["\n","\r"]):
+        raise ValueError("Invalid DNS record name.")
+    if ttl < 60 or ttl > 86400:
+        raise ValueError("Invalid DNS TTL.")
+    if rtype == "TXT":
+        value='"'+dns_escape(value)+'"'
+    elif rtype == "MX":
+        if priority is None: raise ValueError("MX priority is required.")
+        value=str(int(priority))+" "+value
+    return f"{name} {ttl} IN {rtype} {value}"
+
+def bind_reload():
+    if not shutil.which("named-checkzone") or not shutil.which("rndc"):
+        raise ValueError("BIND9 DNS tools are not installed on this server.")
+    run_checked(["systemctl","reload","bind9"])
+
+def complete_dns_upsert(job, base, auth):
+    p=job.get("payload") or {}
+    domain=str(p.get("domain","")).lower().strip()
+    try:
+        zone=dns_zone_path(domain)
+        if not zone.exists():
+            raise ValueError("DNS zone is not managed by mPanel on this server.")
+        records=pathlib.Path(zone).read_text().splitlines()
+        line=dns_record_line(p)
+        records.append(line)
+        pathlib.Path(zone).write_text("\n".join(records)+"\n")
+        bind_reload()
+        request(base+"/api/agent/jobs/"+str(job["id"])+"/complete",{"status":"completed","result":{"operation":"dns_upsert","record_id":p.get("record_id")}},auth)
+    except Exception as e:
+        request(base+"/api/agent/jobs/"+str(job["id"])+"/complete",{"status":"failed","error":str(e)},auth)
+
+def complete_dns_delete(job, base, auth):
+    p=job.get("payload") or {}
+    domain=str(p.get("domain","")).lower().strip()
+    try:
+        zone=dns_zone_path(domain)
+        if not zone.exists():
+            raise ValueError("DNS zone is not managed by mPanel on this server.")
+        target=dns_record_line(p)
+        lines=pathlib.Path(zone).read_text().splitlines()
+        if target in lines:
+            lines.remove(target)
+        pathlib.Path(zone).write_text("\n".join(lines)+"\n")
+        bind_reload()
+        request(base+"/api/agent/jobs/"+str(job["id"])+"/complete",{"status":"completed","result":{"operation":"dns_delete","record_id":p.get("record_id")}},auth)
+    except Exception as e:
+        request(base+"/api/agent/jobs/"+str(job["id"])+"/complete",{"status":"failed","error":str(e)},auth)
+
 def complete_create_site(job, base, auth):
     p=job.get("payload") or {}
     domain=str(p.get("domain","")).lower().strip()
@@ -521,6 +586,10 @@ while True:
             print("[mPanel] received job",job["id"],job["type"],flush=True)
             if job["type"] == "create_site":
                 complete_create_site(job, base, auth)
+            elif job["type"] == "dns_upsert":
+                complete_dns_upsert(job, base, auth)
+            elif job["type"] == "dns_delete":
+                complete_dns_delete(job, base, auth)
             elif job["type"] == "create_database":
                 complete_create_database(job, base, auth)
             elif job["type"] == "delete_database":
