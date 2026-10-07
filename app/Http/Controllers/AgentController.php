@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\AgentJob;
 use App\Models\Server;
 use App\Models\Website;
+use App\Models\HostingDatabase;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
@@ -106,6 +107,19 @@ class AgentController extends Controller
             'error'=>$data['error'] ?? null,
             'completed_at'=>now(),
         ]);
+
+        if (in_array($job->type, ['create_database','delete_database'], true) && !empty($job->payload['database_id'])) {
+            $database=HostingDatabase::find($job->payload['database_id']);
+
+            if ($database && $database->server_id === $server->id) {
+                $database->update([
+                    'status'=>$data['status'] === 'completed'
+                        ? ($job->type === 'delete_database' ? 'deleted' : 'active')
+                        : 'failed',
+                    'last_error'=>$data['status'] === 'failed' ? $data['error'] : null,
+                ]);
+            }
+        }
 
         if ($job->type === 'create_site' && !empty($job->payload['website_id'])) {
             $website=Website::find($job->payload['website_id']);
