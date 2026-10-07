@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-import argparse,json,os,shutil,time,urllib.request
+import argparse,json,os,shutil,time,urllib.request,pathlib,subprocess
 VERSION="0.4.0"
 TOKEN_FILE="/opt/mpanel-agent/agent-token"
 
@@ -38,11 +38,16 @@ def valid_domain(domain):
     import re
     return bool(re.fullmatch(r"(?:[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?\.)+[A-Za-z]{2,63}", domain))
 
+def run_checked(args):
+    return subprocess.run(args, check=True, capture_output=True, text=True, timeout=30)
+
 def complete_create_site(job, base, auth):
     p=job.get("payload") or {}
     domain=str(p.get("domain","")).lower().strip()
     root=str(p.get("document_root",""))
     php=str(p.get("php_version",""))
+    config_path="/etc/nginx/sites-available/"+domain
+    enabled_path="/etc/nginx/sites-enabled/"+domain
     try:
         if not valid_domain(domain):
             raise ValueError("Invalid domain supplied.")
@@ -50,7 +55,56 @@ def complete_create_site(job, base, auth):
             raise ValueError("Invalid document root.")
         if php not in {"8.2","8.3","8.4"}:
             raise ValueError("Unsupported PHP version.")
-        nginx_config = "server {\n    listen 80;\n    listen [::]:80;\n    server_name "+domain+" www."+domain+";\n    root "+root+";\n    index index.php index.html;\n\n    location / {\n        try_files $uri $uri/ /index.php?$query_string;\n    }\n\n    location ~ \\.php$ {\n        include snippets/fastcgi-php.conf;\n        fastcgi_pass unix:/run/php/php"+php+"-fpm.sock;\n    }\n}\n"
+
+        php_socket="/run/php/php"+php+"-fpm.sock"
+        if not os.path.exists(php_socket):
+            raise ValueError("PHP-FPM socket not found for PHP "+php+".")
+
+        root_path=pathlib.Path(root)
+        root_path.mkdir(parents=True, exist_ok=True)
+        index_path=root_path/"index.html"
+        if not index_path.exists():
+            index_path.write_text("<!doctype html><html><head><meta charset=\"utf-8\"><title>"+domain+"</title></head><body><h1>"+domain+"</h1><p>Website provisioned by mPanel.</p></body></html>\n")
+
+        nginx_config = """server {
+    listen 80;
+    listen [::]:80;
+    server_name DOMAIN www.DOMAIN;
+    root ROOT;
+    index index.php index.html;
+
+    location / {
+        try_files $uri $uri/ /index.php?$query_string;
+    }
+
+    location ~ \.php$ {
+        include snippets/fastcgi-php.conf;
+        fastcgi_pass unix:SOCKET;
+    }
+}
+""".replace("DOMAIN", domain).replace("ROOT", root).replace("SOCKET", php_socket)
+
+        pathlib.Path("/etc/nginx/sites-available").mkdir(parents=True, exist_ok=True)
+        pathlib.Path("/etc/nginx/sites-enabled").mkdir(parents=True, exist_ok=True)
+        pathlib.Path(config_path).write_text(nginx_config)
+
+        if os.path.lexists(enabled_path):
+            if not os.path.islink(enabled_path) or os.path.realpath(enabled_path) != config_path:
+                raise ValueError("Existing Nginx site link conflicts with the requested site.")
+        else:
+            os.symlink(config_path, enabled_path)
+
+        try:
+            run_checked(["nginx","-t"])
+        except Exception:
+            if os.path.islink(enabled_path):
+                os.unlink(enabled_path)
+            if os.path.exists(config_path):
+                os.unlink(config_path)
+            raise
+
+        run_checked(["systemctl","reload","nginx"])
+
         request(base+"/api/agent/jobs/"+str(job["id"])+"/complete", {
             "status":"completed",
             "result":{
@@ -58,8 +112,8 @@ def complete_create_site(job, base, auth):
                 "domain":domain,
                 "document_root":root,
                 "php_version":php,
-                "nginx_config":nginx_config,
-                "mode":"validated"
+                "config_path":config_path,
+                "mode":"provisioned"
             }
         }, auth)
     except Exception as e:
