@@ -78,6 +78,7 @@ class DatabaseController extends Controller
             'type'=>'create_database',
             'payload'=>[
                 'database_id'=>$database->id,
+                'operation'=>'create',
                 'database_name'=>$dbName,
                 'username'=>$dbUser,
                 'password'=>$data['password'],
@@ -117,6 +118,7 @@ class DatabaseController extends Controller
             'type'=>'delete_database',
             'payload'=>[
                 'database_id'=>$database->id,
+                'operation'=>'delete',
                 'database_name'=>$database->name,
                 'username'=>$database->username,
             ],
