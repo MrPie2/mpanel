@@ -1,6 +1,6 @@
-# mPanel Agent v0.3
+# mPanel Agent v0.4
 
-The Agent is a telemetry service for Ubuntu/Linux servers.
+The Agent is a telemetry and controlled provisioning service for Ubuntu/Linux servers.
 
 ## First installation
 
@@ -37,6 +37,6 @@ The Agent reports CPU, memory and root-disk utilization every 30 seconds.
 
 ## Security
 
-The Agent does not execute commands received from mPanel in v0.3. It is telemetry-only.
+The Agent only accepts explicitly allowlisted job types. The current `create_site` operation validates the requested domain, document root and PHP version and returns the generated Nginx configuration for the control plane. It does not yet modify Nginx or the filesystem.
 
 Use HTTPS in production. Never commit pairing or Agent credentials to Git.
