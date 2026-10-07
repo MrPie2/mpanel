@@ -41,6 +41,36 @@ def valid_domain(domain):
 def run_checked(args):
     return subprocess.run(args, check=True, capture_output=True, text=True, timeout=30)
 
+
+def complete_list_files(job, base, auth):
+    p=job.get("payload") or {}
+    root=str(p.get("document_root",""))
+    relative=str(p.get("path","")).strip("/")
+    try:
+        if not root.startswith("/var/www/") or not valid_domain(root[len("/var/www/"):]):
+            raise ValueError("Invalid website root.")
+        target=pathlib.Path(root) / relative
+        target=target.resolve()
+        root_path=pathlib.Path(root).resolve()
+        if target != root_path and root_path not in target.parents:
+            raise ValueError("Path escapes website root.")
+        if not target.exists() or not target.is_dir():
+            raise ValueError("Directory not found.")
+        entries=[]
+        for item in sorted(target.iterdir(), key=lambda x: (not x.is_dir(), x.name.lower())):
+            entries.append({
+                "name":item.name,
+                "type":"directory" if item.is_dir() else "file",
+                "size":item.stat().st_size if item.is_file() else None
+            })
+        request(base+"/api/agent/jobs/"+str(job["id"])+"/complete", {
+            "status":"completed",
+            "result":{"path":relative,"entries":entries}
+        }, auth)
+    except Exception as e:
+        request(base+"/api/agent/jobs/"+str(job["id"])+"/complete",
+                {"status":"failed","error":str(e)},auth)
+
 def complete_create_site(job, base, auth):
     p=job.get("payload") or {}
     domain=str(p.get("domain","")).lower().strip()
@@ -152,6 +182,8 @@ while True:
             print("[mPanel] received job",job["id"],job["type"],flush=True)
             if job["type"] == "create_site":
                 complete_create_site(job, base, auth)
+            elif job["type"] == "list_files":
+                complete_list_files(job, base, auth)
             else:
                 result={"message":"Operation not implemented by this Agent version."}
                 request(base+"/api/agent/jobs/"+str(job["id"])+"/complete",
