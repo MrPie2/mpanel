@@ -1,26 +1,40 @@
 #!/usr/bin/env bash
 set -euo pipefail
+
 INSTALL_DIR="/opt/mpanel-agent"
 SERVICE="/etc/systemd/system/mpanel-agent.service"
+RENEW_SERVICE="/etc/systemd/system/mpanel-ssl-renew.service"
+RENEW_TIMER="/etc/systemd/system/mpanel-ssl-renew.timer"
 
-if [[ "${EUID}" -ne 0 ]]; then
+if [[ "\${EUID}" -ne 0 ]]; then
     echo "Run as root: sudo bash install.sh"
     exit 1
 fi
 
-command -v python3 >/dev/null || { echo "python3 is required."; exit 1; }
-mkdir -p "$INSTALL_DIR"
-install -m 0755 "$(dirname "$0")/mpanel-agent.py" "$INSTALL_DIR/mpanel-agent.py"
+required_commands=(python3 git nginx)
+for command in "\${required_commands[@]}"; do
+    if ! command -v "\$command" >/dev/null 2>&1; then
+        echo "Missing required dependency: \$command"
+        echo "Install it with: sudo apt install \$command"
+        exit 1
+    fi
+done
 
-cat > "$INSTALL_DIR/mpanel-agent.env" <<'EOF'
+SOURCE_DIR="\$(cd "\$(dirname "\$0")" && pwd)"
+mkdir -p "\$INSTALL_DIR"
+install -m 0755 "\$SOURCE_DIR/mpanel-agent.py" "\$INSTALL_DIR/mpanel-agent.py"
+
+if [[ ! -f "\$INSTALL_DIR/mpanel-agent.env" ]]; then
+    cat > "\$INSTALL_DIR/mpanel-agent.env" <<'EOF'
 MPANEL_URL=
 MPANEL_SERVER_ID=
 MPANEL_PAIRING_TOKEN=
 MPANEL_INTERVAL=30
 EOF
-chmod 0600 "$INSTALL_DIR/mpanel-agent.env"
+fi
+chmod 0600 "\$INSTALL_DIR/mpanel-agent.env"
 
-cat > "$SERVICE" <<'EOF'
+cat > "\$SERVICE" <<'EOF'
 [Unit]
 Description=mPanel Server Agent
 After=network-online.target
@@ -29,24 +43,20 @@ Wants=network-online.target
 [Service]
 Type=simple
 EnvironmentFile=/opt/mpanel-agent/mpanel-agent.env
-ExecStart=/usr/bin/python3 /opt/mpanel-agent/mpanel-agent.py --url ${MPANEL_URL} --server-id ${MPANEL_SERVER_ID} --pairing-token ${MPANEL_PAIRING_TOKEN} --interval ${MPANEL_INTERVAL}
+ExecStart=/usr/bin/python3 /opt/mpanel-agent/mpanel-agent.py --url \${MPANEL_URL} --server-id \${MPANEL_SERVER_ID} --pairing-token \${MPANEL_PAIRING_TOKEN} --interval \${MPANEL_INTERVAL}
 Restart=always
 RestartSec=5
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
 ProtectHome=true
-ReadWritePaths=/var/www /etc/nginx/sites-available /etc/nginx/sites-enabled /etc/letsencrypt /var/lib/letsencrypt /var/log/letsencrypt
+ReadWritePaths=/opt/mpanel-agent /var/www /etc/nginx/sites-available /etc/nginx/sites-enabled /etc/letsencrypt /var/lib/letsencrypt /var/log/letsencrypt
 
 [Install]
 WantedBy=multi-user.target
 EOF
 
-
-RENEW_SERVICE="/etc/systemd/system/mpanel-ssl-renew.service"
-RENEW_TIMER="/etc/systemd/system/mpanel-ssl-renew.timer"
-
-cat > "$RENEW_SERVICE" <<'EOF'
+cat > "\$RENEW_SERVICE" <<'EOF'
 [Unit]
 Description=mPanel Let's Encrypt certificate renewal
 After=network-online.target
@@ -54,12 +64,12 @@ Wants=network-online.target
 
 [Service]
 Type=oneshot
-ExecStart=/bin/sh -c 'command -v certbot >/dev/null 2>&1 && certbot renew --quiet --deploy-hook "/bin/systemctl reload nginx" || true'
+ExecStart=/bin/sh -c 'if command -v certbot >/dev/null 2>&1; then certbot renew --quiet --deploy-hook "/bin/systemctl reload nginx"; fi'
 EOF
 
-cat > "$RENEW_TIMER" <<'EOF'
+cat > "\$RENEW_TIMER" <<'EOF'
 [Unit]
-Description=Daily mPanel SSL certificate renewal check
+Description=mPanel Let's Encrypt certificate renewal check
 
 [Timer]
 OnBootSec=15min
@@ -71,8 +81,18 @@ WantedBy=timers.target
 EOF
 
 systemctl daemon-reload
+systemctl enable mpanel-agent
 systemctl enable mpanel-ssl-renew.timer
 
-systemctl daemon-reload
-systemctl enable mpanel-agent
-echo "Installed. Edit $INSTALL_DIR/mpanel-agent.env, then run: systemctl start mpanel-agent"
+echo
+echo "mPanel Agent installed successfully."
+echo
+echo "Configuration:"
+echo "  \$INSTALL_DIR/mpanel-agent.env"
+echo
+echo "Edit that file with your mPanel URL, Server ID and pairing token."
+echo
+echo "Then run:"
+echo "  sudo systemctl start mpanel-agent"
+echo "  sudo systemctl status mpanel-agent"
+echo "  sudo journalctl -u mpanel-agent -f"
