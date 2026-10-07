@@ -16,6 +16,9 @@ Route::middleware('guest')->group(function () {
 Route::middleware('auth')->group(function () {
     Route::get('/dashboard', [DashboardController::class, 'index'])->name('dashboard');
     Route::resource('websites', WebsiteController::class)->only(['index', 'show']);
+    Route::get('/websites/{website}/files', [WebsiteController::class, 'files'])->name('websites.files');
+    Route::post('/websites/{website}/files/jobs', [WebsiteController::class, 'filesJob'])->name('websites.files.jobs');
+    Route::get('/websites/{website}/files/jobs/{job}', [WebsiteController::class, 'filesJobStatus'])->name('websites.files.jobs.status');
     Route::resource('servers', ServerController::class)->only(['index', 'create', 'store', 'show', 'destroy']);
     Route::post('/servers/{server}/websites', [ServerController::class, 'websiteCreate'])->name('servers.websites.store');
     Route::post('/logout', [AuthController::class, 'logout'])->name('logout');
