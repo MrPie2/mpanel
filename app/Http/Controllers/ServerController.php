@@ -29,7 +29,7 @@ class ServerController extends Controller
         ]);
 
         $plainToken=Str::random(64);
-        $server=Server::create([...$data,'status'=>'pending','agent_token_hash'=>Hash::make($plainToken),'user_id'=>$request->user()->id]);
+        $server=Server::create([...$data,'status'=>'pending','agent_token_hash'=>null,'pairing_token_hash'=>Hash::make($plainToken),'pairing_token_expires_at'=>now()->addMinutes(15),'user_id'=>$request->user()->id]);
 
         return redirect()->route('servers.show',$server)->with('agent_token',$plainToken)->with('success','Server added. Copy the pairing token now and install the mPanel Agent.');
     }
