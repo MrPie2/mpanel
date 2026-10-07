@@ -4,9 +4,12 @@ use App\Http\Controllers\AuthController;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\DatabaseController;
 use App\Http\Controllers\DnsController;
+use App\Http\Controllers\GitController;
 use App\Http\Controllers\ServerController;
 use App\Http\Controllers\WebsiteController;
 use Illuminate\Support\Facades\Route;
+
+Route::post('/webhooks/github/{website}', [GitController::class, 'webhook'])->name('webhooks.github');
 
 Route::get('/', fn () => redirect()->route('dashboard'));
 
@@ -27,6 +30,11 @@ Route::middleware('auth')->group(function () {
     Route::get('/websites/{website}/dns', [DnsController::class, 'index'])->name('websites.dns');
     Route::post('/websites/{website}/dns', [DnsController::class, 'store'])->name('websites.dns.store');
     Route::delete('/websites/{website}/dns/{record}', [DnsController::class, 'destroy'])->name('websites.dns.destroy');
+    Route::get('/websites/{website}/git', [GitController::class, 'index'])->name('websites.git');
+    Route::post('/websites/{website}/git/connect', [GitController::class, 'connect'])->name('websites.git.connect');
+    Route::post('/websites/{website}/git/deploy', [GitController::class, 'deploy'])->name('websites.git.deploy');
+    Route::get('/websites/{website}/git/jobs/{job}', [GitController::class, 'status'])->name('websites.git.status');
+    Route::delete('/websites/{website}/git', [GitController::class, 'disconnect'])->name('websites.git.disconnect');
     Route::get('/websites/{website}/ssl', [WebsiteController::class, 'ssl'])->name('websites.ssl');
     Route::post('/websites/{website}/ssl/issue', [WebsiteController::class, 'sslIssue'])->name('websites.ssl.issue');
     Route::get('/websites/{website}/ssl/issue/{job}', [WebsiteController::class, 'sslIssueStatus'])->name('websites.ssl.issue.status');
