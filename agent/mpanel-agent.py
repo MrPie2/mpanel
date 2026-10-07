@@ -477,7 +477,7 @@ def complete_dns_delete(job, base, auth):
 
 def valid_git_repository(url):
     import re
-    return bool(re.fullmatch(r"https://github\\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+(?:\\.git)?", url))
+    return bool(re.fullmatch(r"https://github\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+(?:\.git)?", url))
 
 def complete_git_deploy(job, base, auth):
     p=job.get("payload") or {}
