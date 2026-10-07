@@ -9,7 +9,7 @@ class GitDeployment extends Model
 {
     protected $fillable = [
         'website_id','repository_url','branch','deploy_path',
-        'webhook_secret_hash','status','last_commit','last_deployed_at','last_error',
+        'webhook_secret_hash','webhook_secret_encrypted','status','last_commit','last_deployed_at','last_error',
     ];
 
     protected function casts(): array
