@@ -36,6 +36,7 @@ NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
 ProtectHome=true
+ReadWritePaths=/var/www /etc/nginx/sites-available /etc/nginx/sites-enabled
 
 [Install]
 WantedBy=multi-user.target
