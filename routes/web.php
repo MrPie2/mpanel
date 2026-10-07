@@ -3,6 +3,7 @@
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\DatabaseController;
+use App\Http\Controllers\DnsController;
 use App\Http\Controllers\ServerController;
 use App\Http\Controllers\WebsiteController;
 use Illuminate\Support\Facades\Route;
@@ -23,6 +24,9 @@ Route::middleware('auth')->group(function () {
     Route::get('/databases/{database}', [DatabaseController::class, 'show'])->name('databases.show');
     Route::delete('/databases/{database}', [DatabaseController::class, 'destroy'])->name('databases.destroy');
     Route::get('/databases/{database}/jobs/{job}', [DatabaseController::class, 'jobStatus'])->name('databases.jobs.status');
+    Route::get('/websites/{website}/dns', [DnsController::class, 'index'])->name('websites.dns');
+    Route::post('/websites/{website}/dns', [DnsController::class, 'store'])->name('websites.dns.store');
+    Route::delete('/websites/{website}/dns/{record}', [DnsController::class, 'destroy'])->name('websites.dns.destroy');
     Route::get('/websites/{website}/ssl', [WebsiteController::class, 'ssl'])->name('websites.ssl');
     Route::post('/websites/{website}/ssl/issue', [WebsiteController::class, 'sslIssue'])->name('websites.ssl.issue');
     Route::get('/websites/{website}/ssl/issue/{job}', [WebsiteController::class, 'sslIssueStatus'])->name('websites.ssl.issue.status');
