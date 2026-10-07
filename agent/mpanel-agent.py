@@ -365,6 +365,51 @@ def complete_disable_ssl(job, base, auth):
     except Exception as e:
         request(base+"/api/agent/jobs/"+str(job["id"])+"/complete",{"status":"failed","error":str(e)},auth)
 
+def mysql_identifier(value, max_len):
+    import re
+    if not re.fullmatch(r"[A-Za-z0-9_]+", value) or len(value) > max_len:
+        raise ValueError("Invalid MySQL identifier.")
+    return "`" + value.replace("`","``") + "`"
+
+def mysql_string(value):
+    return "'" + str(value).replace("\\","\\\\").replace("'","\\'") + "'"
+
+def mysql_command(sql):
+    if not shutil.which("mysql"):
+        raise ValueError("The mysql client is not installed on this server.")
+    return run_checked(["mysql","--protocol=socket","-Nse",sql])
+
+def complete_create_database(job, base, auth):
+    p=job.get("payload") or {}
+    name=str(p.get("database_name",""))
+    username=str(p.get("username",""))
+    password=str(p.get("password",""))
+    try:
+        db=mysql_identifier(name,64)
+        mysql_identifier(username,32)
+        if len(password) < 12 or len(password) > 128:
+            raise ValueError("Database password must be between 12 and 128 characters.")
+        sql=("CREATE DATABASE IF NOT EXISTS "+db+" CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;"
+             "CREATE USER IF NOT EXISTS "+mysql_string(username)+"@'localhost' IDENTIFIED BY "+mysql_string(password)+";"
+             "ALTER USER "+mysql_string(username)+"@'localhost' IDENTIFIED BY "+mysql_string(password)+";"
+             "GRANT ALL PRIVILEGES ON "+db+".* TO "+mysql_string(username)+"@'localhost';"
+             "FLUSH PRIVILEGES;")
+        mysql_command(sql)
+        request(base+"/api/agent/jobs/"+str(job["id"])+"/complete",{"status":"completed","result":{"operation":"create_database","database_name":name,"username":username}},auth)
+    except Exception as e:
+        request(base+"/api/agent/jobs/"+str(job["id"])+"/complete",{"status":"failed","error":str(e)},auth)
+
+def complete_delete_database(job, base, auth):
+    p=job.get("payload") or {}
+    name=str(p.get("database_name",""))
+    username=str(p.get("username",""))
+    try:
+        db=mysql_identifier(name,64)
+        mysql_identifier(username,32)
+        mysql_command("DROP DATABASE IF EXISTS "+db+"; DROP USER IF EXISTS "+mysql_string(username)+"@'localhost'; FLUSH PRIVILEGES;")
+        request(base+"/api/agent/jobs/"+str(job["id"])+"/complete",{"status":"completed","result":{"operation":"delete_database","database_name":name,"username":username}},auth)
+    except Exception as e:
+        request(base+"/api/agent/jobs/"+str(job["id"])+"/complete",{"status":"failed","error":str(e)},auth)
 def complete_create_site(job, base, auth):
     p=job.get("payload") or {}
     domain=str(p.get("domain","")).lower().strip()
@@ -476,6 +521,10 @@ while True:
             print("[mPanel] received job",job["id"],job["type"],flush=True)
             if job["type"] == "create_site":
                 complete_create_site(job, base, auth)
+            elif job["type"] == "create_database":
+                complete_create_database(job, base, auth)
+            elif job["type"] == "delete_database":
+                complete_delete_database(job, base, auth)
             elif job["type"] == "issue_ssl":
                 complete_issue_ssl(job, base, auth)
             elif job["type"] == "disable_ssl":
