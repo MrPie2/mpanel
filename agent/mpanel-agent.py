@@ -36,7 +36,7 @@ def save_token(token):
 
 def valid_domain(domain):
     import re
-    return bool(re.fullmatch(r"(?:[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?\\.)+[A-Za-z]{2,63}", domain))
+    return bool(re.fullmatch(r"(?:[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?\.)+[A-Za-z]{2,63}", domain))
 
 def complete_create_site(job, base, auth):
     p=job.get("payload") or {}
@@ -50,7 +50,7 @@ def complete_create_site(job, base, auth):
             raise ValueError("Invalid document root.")
         if php not in {"8.2","8.3","8.4"}:
             raise ValueError("Unsupported PHP version.")
-        nginx_config = "server {\\n    listen 80;\\n    listen [::]:80;\\n    server_name "+domain+" www."+domain+";\\n    root "+root+";\\n    index index.php index.html;\\n\\n    location / {\\n        try_files $uri $uri/ /index.php?$query_string;\\n    }\\n\\n    location ~ \\.php$ {\\n        include snippets/fastcgi-php.conf;\\n        fastcgi_pass unix:/run/php/php"+php+"-fpm.sock;\\n    }\\n}\\n"
+        nginx_config = "server {\n    listen 80;\n    listen [::]:80;\n    server_name "+domain+" www."+domain+";\n    root "+root+";\n    index index.php index.html;\n\n    location / {\n        try_files $uri $uri/ /index.php?$query_string;\n    }\n\n    location ~ \\.php$ {\n        include snippets/fastcgi-php.conf;\n        fastcgi_pass unix:/run/php/php"+php+"-fpm.sock;\n    }\n}\n"
         request(base+"/api/agent/jobs/"+str(job["id"])+"/complete", {
             "status":"completed",
             "result":{
