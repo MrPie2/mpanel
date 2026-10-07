@@ -6,6 +6,7 @@ use App\Models\AgentJob;
 use App\Models\HostingDatabase;
 use App\Models\Server;
 use App\Models\Website;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Crypt;
@@ -85,6 +86,20 @@ class DatabaseController extends Controller
 
         return redirect()->route('databases.show',$database)
             ->with('success','Database provisioning job queued.');
+    }
+
+    public function jobStatus(Request $request, HostingDatabase $database, AgentJob $job): JsonResponse
+    {
+        $this->authorizeDatabase($request,$database);
+        abort_unless($job->server_id === $database->server_id && (($job->payload['database_id'] ?? null) === $database->id),404);
+
+        if ($job->status === 'completed') {
+            $database->update(['status' => ($job->payload['operation'] ?? '') === 'delete' ? 'deleted' : 'active', 'last_error' => null]);
+        } elseif ($job->status === 'failed') {
+            $database->update(['status' => 'failed', 'last_error' => $job->error]);
+        }
+
+        return response()->json(['status'=>$job->status,'result'=>$job->result,'error'=>$job->error]);
     }
 
     public function show(Request $request, HostingDatabase $database): View
