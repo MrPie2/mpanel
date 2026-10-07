@@ -2,7 +2,9 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\AgentJob;
 use App\Models\Server;
+use App\Models\Website;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
@@ -41,4 +43,38 @@ class ServerController extends Controller
         $server->delete();
         return redirect()->route('servers.index')->with('success','Server removed from mPanel.');
     }
+    public function websiteCreate(Request $request, Server $server): RedirectResponse
+    {
+        abort_unless($server->user_id === $request->user()->id, 403);
+
+        $data=$request->validate([
+            'domain'=>['required','string','max:253','regex:/^(?=.{1,253}$)(?:[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z]{2,63}$/'],
+            'php_version'=>['required','string','in:8.2,8.3,8.4'],
+        ]);
+
+        $domain=strtolower($data['domain']);
+        $documentRoot='/var/www/'.$domain;
+
+        $website=Website::create([
+            'server_id'=>$server->id,
+            'domain'=>$domain,
+            'document_root'=>$documentRoot,
+            'php_version'=>$data['php_version'],
+            'status'=>'provisioning',
+        ]);
+
+        AgentJob::create([
+            'server_id'=>$server->id,
+            'type'=>'create_site',
+            'payload'=>[
+                'website_id'=>$website->id,
+                'domain'=>$domain,
+                'document_root'=>$documentRoot,
+                'php_version'=>$data['php_version'],
+            ],
+        ]);
+
+        return redirect()->route('servers.show',$server)->with('success','Website provisioning job queued.');
+    }
+
 }
