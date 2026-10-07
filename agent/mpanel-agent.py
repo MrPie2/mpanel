@@ -42,6 +42,77 @@ def run_checked(args):
     return subprocess.run(args, check=True, capture_output=True, text=True, timeout=30)
 
 
+
+def safe_website_path(root, relative):
+    root_path=pathlib.Path(root).resolve()
+    target=(root_path / str(relative).strip("/")).resolve()
+    if target != root_path and root_path not in target.parents:
+        raise ValueError("Path escapes website root.")
+    return root_path,target
+
+def complete_file_operation(job, base, auth):
+    p=job.get("payload") or {}
+    root=str(p.get("document_root",""))
+    operation=str(p.get("operation",""))
+    relative=str(p.get("path","")).strip("/")
+    name=str(p.get("name") or "").strip()
+    new_name=str(p.get("new_name") or "").strip()
+    try:
+        domain=root[len("/var/www/"):] if root.startswith("/var/www/") else ""
+        if not valid_domain(domain) or root != "/var/www/"+domain:
+            raise ValueError("Invalid website root.")
+        if operation not in {"create_folder","create_file","rename","delete"}:
+            raise ValueError("Unsupported file operation.")
+
+        root_path,target=safe_website_path(root,relative)
+        if operation in {"create_folder","create_file"}:
+            if not name or "/" in name or name in {".",".."}:
+                raise ValueError("Invalid name.")
+            parent=target
+            if not parent.exists() or not parent.is_dir():
+                raise ValueError("Parent directory not found.")
+            destination=(parent/name).resolve()
+            if root_path not in destination.parents:
+                raise ValueError("Invalid destination.")
+            if destination.exists():
+                raise ValueError("An item with that name already exists.")
+            if operation=="create_folder":
+                destination.mkdir()
+            else:
+                destination.touch()
+            result={"operation":operation,"path":str(destination.relative_to(root_path))}
+        elif operation=="rename":
+            if not name or "/" in name or name in {".",".."} or not new_name or "/" in new_name or new_name in {".",".."}:
+                raise ValueError("Invalid name.")
+            source=target/name
+            destination=(target/new_name).resolve()
+            if root_path not in source.resolve().parents and source.resolve()!=root_path:
+                raise ValueError("Invalid source.")
+            if root_path not in destination.parents:
+                raise ValueError("Invalid destination.")
+            if not source.exists():
+                raise ValueError("Source item not found.")
+            if destination.exists():
+                raise ValueError("Destination already exists.")
+            source.rename(destination)
+            result={"operation":"rename","path":str(destination.relative_to(root_path))}
+        else:
+            if not relative:
+                raise ValueError("The website root cannot be deleted.")
+            if not target.exists():
+                raise ValueError("Item not found.")
+            if target.is_symlink():
+                target.unlink()
+            elif target.is_dir():
+                shutil.rmtree(target)
+            else:
+                target.unlink()
+            result={"operation":"delete","path":relative}
+
+        request(base+"/api/agent/jobs/"+str(job["id"])+"/complete", {"status":"completed","result":result}, auth)
+    except Exception as e:
+        request(base+"/api/agent/jobs/"+str(job["id"])+"/complete", {"status":"failed","error":str(e)},auth)
+
 def complete_list_files(job, base, auth):
     p=job.get("payload") or {}
     root=str(p.get("document_root",""))
@@ -184,6 +255,8 @@ while True:
                 complete_create_site(job, base, auth)
             elif job["type"] == "list_files":
                 complete_list_files(job, base, auth)
+            elif job["type"] == "file_operation":
+                complete_file_operation(job, base, auth)
             else:
                 result={"message":"Operation not implemented by this Agent version."}
                 request(base+"/api/agent/jobs/"+str(job["id"])+"/complete",
