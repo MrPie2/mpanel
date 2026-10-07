@@ -53,7 +53,7 @@ connectForm?.addEventListener('submit',async e=>{
  const d=await r.json(); if(!r.ok){alert(d.message||'Unable to connect repository.');return;}
  document.getElementById('webhook-secret').style.display='block';
  document.getElementById('webhook-secret').innerHTML='<strong>GitHub webhook secret:</strong><br><code>'+d.webhook_secret+'</code><br><small>Copy this now. mPanel does not display it again.</small><br><strong>Webhook URL:</strong> '+d.webhook_url;
- location.reload();
+ document.getElementById('repository_url').value=d.webhook_url;
 });
 document.getElementById('deploy-btn')?.addEventListener('click',async()=>{
  const r=await fetch('{{ route('websites.git.deploy',$website) }}',{method:'POST',headers:{'X-CSRF-TOKEN':'{{ csrf_token() }}','Accept':'application/json'}});
