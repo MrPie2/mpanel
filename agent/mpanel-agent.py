@@ -119,7 +119,7 @@ def complete_file_operation(job, base, auth):
         domain=root[len("/var/www/"):] if root.startswith("/var/www/") else ""
         if not valid_domain(domain) or root != "/var/www/"+domain:
             raise ValueError("Invalid website root.")
-        if operation not in {"create_folder","create_file","rename","delete"}:
+        if operation not in {"create_folder","create_file","rename","delete","write_file"}:
             raise ValueError("Unsupported file operation.")
 
         root_path,target=safe_website_path(root,relative)
@@ -207,6 +207,163 @@ def complete_list_files(job, base, auth):
     except Exception as e:
         request(base+"/api/agent/jobs/"+str(job["id"])+"/complete",
                 {"status":"failed","error":str(e)},auth)
+
+def ssl_http_config(domain, root):
+    return """server {
+    listen 80;
+    listen [::]:80;
+    server_name DOMAIN www.DOMAIN;
+    root ROOT;
+    index index.php index.html;
+
+    location /.well-known/acme-challenge/ {
+        try_files $uri =404;
+    }
+
+    location / {
+        try_files $uri $uri/ /index.php?$query_string;
+    }
+
+    location ~ \.php$ {
+        include snippets/fastcgi-php.conf;
+        fastcgi_pass unix:PHP_SOCKET;
+    }
+}
+""".replace("DOMAIN", domain).replace("ROOT", root)
+
+def ssl_https_config(domain, root, php_socket):
+    return """server {
+    listen 80;
+    listen [::]:80;
+    server_name DOMAIN www.DOMAIN;
+    root ROOT;
+
+    location /.well-known/acme-challenge/ {
+        try_files $uri =404;
+    }
+
+    location / {
+        return 301 https://$host$request_uri;
+    }
+}
+
+server {
+    listen 443 ssl;
+    listen [::]:443 ssl;
+    server_name DOMAIN www.DOMAIN;
+    root ROOT;
+    index index.php index.html;
+
+    ssl_certificate /etc/letsencrypt/live/DOMAIN/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/DOMAIN/privkey.pem;
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_session_cache shared:SSL:10m;
+    ssl_session_timeout 10m;
+
+    location / {
+        try_files $uri $uri/ /index.php?$query_string;
+    }
+
+    location ~ \.php$ {
+        include snippets/fastcgi-php.conf;
+        fastcgi_pass unix:PHP_SOCKET;
+    }
+}
+""".replace("DOMAIN", domain).replace("ROOT", root).replace("PHP_SOCKET", php_socket)
+
+def cert_expiry(cert_path):
+    out=run_checked(["openssl","x509","-enddate","-noout","-in",cert_path]).stdout.strip()
+    value=out.split("=",1)[1]
+    import datetime
+    dt=datetime.datetime.strptime(value,"%b %d %H:%M:%S %Y %Z").replace(tzinfo=datetime.timezone.utc)
+    return dt.isoformat()
+
+def complete_issue_ssl(job, base, auth):
+    p=job.get("payload") or {}
+    domain=str(p.get("domain","")).lower().strip()
+    root=str(p.get("document_root",""))
+    email=str(p.get("email","")).strip()
+    config_path="/etc/nginx/sites-available/"+domain
+    enabled_path="/etc/nginx/sites-enabled/"+domain
+    backup_path=config_path+".mpanel-http-backup"
+    try:
+        if not valid_domain(domain) or root != "/var/www/"+domain:
+            raise ValueError("Invalid website configuration.")
+        if not email:
+            raise ValueError("Certificate email is required.")
+        php_socket="/run/php/php"+str(p.get("php_version","8.3"))+"-fpm.sock"
+        if not os.path.exists(php_socket):
+            sockets=list(pathlib.Path("/run/php").glob("php*-fpm.sock"))
+            if not sockets:
+                raise ValueError("No PHP-FPM socket was found.")
+            php_socket=str(sockets[0])
+
+        if not os.path.exists("/usr/bin/certbot"):
+            raise ValueError("Certbot is not installed on this server. Install certbot before enabling SSL.")
+
+        root_path=pathlib.Path(root)
+        root_path.mkdir(parents=True,exist_ok=True)
+        challenge=root_path/".well-known"/"acme-challenge"
+        challenge.mkdir(parents=True,exist_ok=True)
+
+        original=pathlib.Path(config_path).read_text() if os.path.exists(config_path) else ""
+        pathlib.Path(backup_path).write_text(original)
+
+        pathlib.Path(config_path).write_text(ssl_http_config(domain,root).replace("PHP_SOCKET",php_socket))
+        try:
+            run_checked(["nginx","-t"])
+            run_checked(["systemctl","reload","nginx"])
+            run_checked([
+                "certbot","certonly","--webroot","-w",root,"-d",domain,
+                "--non-interactive","--agree-tos","--email",email,
+                "--keep-until-expiring"
+            ])
+            cert_path="/etc/letsencrypt/live/"+domain+"/fullchain.pem"
+            if not os.path.exists(cert_path):
+                raise ValueError("Certbot completed but the certificate file was not found.")
+            pathlib.Path(config_path).write_text(ssl_https_config(domain,root,php_socket))
+            run_checked(["nginx","-t"])
+            run_checked(["systemctl","reload","nginx"])
+            if os.path.exists(backup_path):
+                os.unlink(backup_path)
+            import datetime
+            now=datetime.datetime.now(datetime.timezone.utc).isoformat()
+            expires=cert_expiry(cert_path)
+            request(base+"/api/agent/jobs/"+str(job["id"])+"/complete", {
+                "status":"completed",
+                "result":{"ssl_enabled":True,"domain":domain,"issued_at":now,"expires_at":expires,"certificate":cert_path}
+            },auth)
+        except Exception:
+            if original:
+                pathlib.Path(config_path).write_text(original)
+                try:
+                    run_checked(["nginx","-t"]); run_checked(["systemctl","reload","nginx"])
+                except Exception:
+                    pass
+            elif os.path.exists(config_path):
+                os.unlink(config_path)
+            raise
+    except Exception as e:
+        request(base+"/api/agent/jobs/"+str(job["id"])+"/complete",{"status":"failed","error":str(e)},auth)
+
+def complete_disable_ssl(job, base, auth):
+    p=job.get("payload") or {}
+    domain=str(p.get("domain","")).lower().strip()
+    root=str(p.get("document_root",""))
+    config_path="/etc/nginx/sites-available/"+domain
+    try:
+        if not valid_domain(domain) or root != "/var/www/"+domain:
+            raise ValueError("Invalid website configuration.")
+        php_sockets=list(pathlib.Path("/run/php").glob("php*-fpm.sock"))
+        php_socket=str(php_sockets[0]) if php_sockets else "/run/php/php8.3-fpm.sock"
+        pathlib.Path(config_path).write_text(ssl_http_config(domain,root).replace("PHP_SOCKET",php_socket))
+        run_checked(["nginx","-t"])
+        run_checked(["systemctl","reload","nginx"])
+        request(base+"/api/agent/jobs/"+str(job["id"])+"/complete",{
+            "status":"completed","result":{"ssl_enabled":False,"domain":domain}
+        },auth)
+    except Exception as e:
+        request(base+"/api/agent/jobs/"+str(job["id"])+"/complete",{"status":"failed","error":str(e)},auth)
 
 def complete_create_site(job, base, auth):
     p=job.get("payload") or {}
@@ -319,6 +476,10 @@ while True:
             print("[mPanel] received job",job["id"],job["type"],flush=True)
             if job["type"] == "create_site":
                 complete_create_site(job, base, auth)
+            elif job["type"] == "issue_ssl":
+                complete_issue_ssl(job, base, auth)
+            elif job["type"] == "disable_ssl":
+                complete_disable_ssl(job, base, auth)
             elif job["type"] == "list_files":
                 complete_list_files(job, base, auth)
             elif job["type"] == "file_operation":
