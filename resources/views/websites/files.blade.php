@@ -67,6 +67,10 @@ function renderFiles(entries){
         const actions=document.createElement('div'); actions.style.display='flex'; actions.style.gap='6px';
         const rename=document.createElement('button'); rename.className='mp-secondary-btn'; rename.textContent='Rename'; rename.onclick=()=>renameItem(entry.name);
         const del=document.createElement('button'); del.className='mp-secondary-btn'; del.textContent='Delete'; del.onclick=()=>deleteItem(entry.name,entry.type);
+        if(entry.type==='file'){
+            const dl=document.createElement('button'); dl.className='mp-secondary-btn'; dl.textContent='Download'; dl.onclick=()=>downloadItem(entry.name);
+            actions.append(dl);
+        }
         actions.append(rename,del); tr.children[3].appendChild(actions);
         if(entry.type==='directory') tr.children[0].style.cursor='pointer';
         if(entry.type==='directory') tr.children[0].onclick=()=>{currentPath=currentPath?currentPath+'/'+entry.name:entry.name;updatePath();loadFiles();};
@@ -97,6 +101,31 @@ function renameItem(name){
     const next=prompt('New name:',name);
     if(!next||next===name)return;
     operation({operation:'rename',path:currentPath,name,new_name:next});
+}
+async function downloadItem(name){
+    const token=document.querySelector('meta[name="csrf-token"]').content;
+    const path=currentPath?currentPath+'/'+name:name;
+    const response=await fetch(@json(route('websites.files.download',$website)),{
+        method:'POST',headers:{'Content-Type':'application/json','X-CSRF-TOKEN':token,'Accept':'application/json'},
+        body:JSON.stringify({path})
+    });
+    if(!response.ok){document.getElementById('fileStatus').textContent='Unable to queue download.';return;}
+    const job=await response.json();
+    document.getElementById('fileStatus').textContent='Preparing download…';
+    const timer=setInterval(async()=>{
+        const result=await fetch(@json(route('websites.files.download.status',[$website,'JOB'])).replace('JOB',job.job_id),{headers:{'Accept':'application/json'}});
+        const data=await result.json();
+        if(data.status==='completed'){
+            clearInterval(timer);
+            const raw=atob(data.result.content_base64), bytes=new Uint8Array(raw.length);
+            for(let i=0;i<raw.length;i++) bytes[i]=raw.charCodeAt(i);
+            const blob=new Blob([bytes]);
+            const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=data.result.name; a.click(); URL.revokeObjectURL(a.href);
+            document.getElementById('fileStatus').textContent='Download ready.';
+        } else if(data.status==='failed'){
+            clearInterval(timer); document.getElementById('fileStatus').textContent=data.error||'Download failed.';
+        }
+    },700);
 }
 function deleteItem(name,type){
     if(!confirm('Delete '+name+(type==='directory'?' and everything inside it':'')+'?'))return;
