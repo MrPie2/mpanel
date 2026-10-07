@@ -8,6 +8,7 @@ use App\Models\Website;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Str;
 use Illuminate\View\View;
 
@@ -42,6 +43,7 @@ class GitController extends Controller
                 'branch' => $data['branch'],
                 'deploy_path' => $website->document_root,
                 'webhook_secret_hash' => Hash::make($secret),
+                'webhook_secret_encrypted' => Crypt::encryptString($secret),
                 'status' => 'connected',
                 'last_error' => null,
             ]
@@ -111,7 +113,7 @@ class GitController extends Controller
         abort_unless($git && $git->webhook_secret_hash, 404);
 
         $signature = $request->header('X-Hub-Signature-256', '');
-        $expected = 'sha256='.hash_hmac('sha256', $request->getContent(), $this->webhookSecretPlaceholder($git));
+        $expected = 'sha256='.hash_hmac('sha256', $request->getContent(), Crypt::decryptString($git->webhook_secret_encrypted));
         if (!hash_equals($expected, $signature)) {
             return response()->json(['message' => 'Invalid webhook signature.'], 401);
         }
@@ -136,11 +138,6 @@ class GitController extends Controller
         ]);
 
         return response()->json(['message' => 'Deployment queued.'], 202);
-    }
-
-    private function webhookSecretPlaceholder(GitDeployment $git): string
-    {
-        abort(500, 'Webhook secret verification requires encrypted secret storage.');
     }
 
     private function authorizeWebsite(Request $request, Website $website): void
