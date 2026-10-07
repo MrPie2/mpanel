@@ -6,6 +6,7 @@ use App\Models\AgentJob;
 use App\Models\Website;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Str;
 use Illuminate\View\View;
 
 class WebsiteController extends Controller
