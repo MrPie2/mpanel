@@ -2,7 +2,9 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\AgentJob;
 use App\Models\Server;
+use App\Models\Website;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
@@ -60,4 +62,62 @@ class AgentController extends Controller
 
         return response()->json(['status'=>'ok','server_id'=>$server->id,'received_at'=>now()->toIso8601String()]);
     }
+    public function jobs(Request $request): JsonResponse
+    {
+        $server=$request->attributes->get('agent_server');
+
+        $jobs=AgentJob::where('server_id',$server->id)
+            ->where('status','queued')
+            ->orderBy('id')
+            ->limit(10)
+            ->get();
+
+        $jobs->each(fn (AgentJob $job) => $job->update([
+            'status'=>'claimed',
+            'claimed_at'=>now(),
+        ]));
+
+        return response()->json([
+            'jobs'=>$jobs->map(fn ($job)=>[
+                'id'=>$job->id,
+                'type'=>$job->type,
+                'payload'=>$job->payload,
+            ]),
+        ]);
+    }
+
+    public function completeJob(Request $request, AgentJob $job): JsonResponse
+    {
+        $server=$request->attributes->get('agent_server');
+
+        if (!$server || $job->server_id !== $server->id) {
+            return response()->json(['message'=>'Forbidden.'],403);
+        }
+
+        $data=$request->validate([
+            'status'=>['required','in:completed,failed'],
+            'result'=>['nullable','array'],
+            'error'=>['nullable','string','max:5000'],
+        ]);
+
+        $job->update([
+            'status'=>$data['status'],
+            'result'=>$data['result'] ?? null,
+            'error'=>$data['error'] ?? null,
+            'completed_at'=>now(),
+        ]);
+
+        if ($job->type === 'create_site' && !empty($job->payload['website_id'])) {
+            $website=Website::find($job->payload['website_id']);
+
+            if ($website && $website->server_id === $server->id) {
+                $website->update([
+                    'status'=>$data['status'] === 'completed' ? 'active' : 'failed',
+                ]);
+            }
+        }
+
+        return response()->json(['status'=>'ok']);
+    }
+
 }
