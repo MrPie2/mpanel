@@ -50,6 +50,32 @@ def safe_website_path(root, relative):
         raise ValueError("Path escapes website root.")
     return root_path,target
 
+
+def complete_download_file(job, base, auth):
+    p=job.get("payload") or {}
+    root=str(p.get("document_root",""))
+    relative=str(p.get("path","")).strip("/")
+    try:
+        domain=root[len("/var/www/")] if root.startswith("/var/www/") else ""
+        if not valid_domain(domain) or root != "/var/www/"+domain:
+            raise ValueError("Invalid website root.")
+        if not relative:
+            raise ValueError("A file path is required.")
+        root_path,target=safe_website_path(root,relative)
+        if not target.exists() or not target.is_file():
+            raise ValueError("File not found.")
+        if target.stat().st_size > 5 * 1024 * 1024:
+            raise ValueError("File is larger than the 5 MB Agent download limit.")
+        import base64
+        content=base64.b64encode(target.read_bytes()).decode("ascii")
+        request(base+"/api/agent/jobs/"+str(job["id"])+"/complete", {
+            "status":"completed",
+            "result":{"path":relative,"name":target.name,"size":target.stat().st_size,"content_base64":content}
+        }, auth)
+    except Exception as e:
+        request(base+"/api/agent/jobs/"+str(job["id"])+"/complete",
+                {"status":"failed","error":str(e)},auth)
+
 def complete_file_operation(job, base, auth):
     p=job.get("payload") or {}
     root=str(p.get("document_root",""))
@@ -257,6 +283,8 @@ while True:
                 complete_list_files(job, base, auth)
             elif job["type"] == "file_operation":
                 complete_file_operation(job, base, auth)
+            elif job["type"] == "download_file":
+                complete_download_file(job, base, auth)
             else:
                 result={"message":"Operation not implemented by this Agent version."}
                 request(base+"/api/agent/jobs/"+str(job["id"])+"/complete",
