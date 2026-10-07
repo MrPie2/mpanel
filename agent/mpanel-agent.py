@@ -475,6 +475,64 @@ def complete_dns_delete(job, base, auth):
     except Exception as e:
         request(base+"/api/agent/jobs/"+str(job["id"])+"/complete",{"status":"failed","error":str(e)},auth)
 
+def valid_git_repository(url):
+    import re
+    return bool(re.fullmatch(r"https://github\\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+(?:\\.git)?", url))
+
+def complete_git_deploy(job, base, auth):
+    p=job.get("payload") or {}
+    domain=str(p.get("domain","")).lower().strip()
+    root=str(p.get("deploy_path",""))
+    repo=str(p.get("repository_url","")).strip()
+    branch=str(p.get("branch","main")).strip()
+    temp_root=pathlib.Path("/tmp/mpanel-git-"+str(job["id"]))
+    try:
+        if not valid_domain(domain) or root != "/var/www/"+domain:
+            raise ValueError("Invalid website deployment path.")
+        if not valid_git_repository(repo):
+            raise ValueError("Only public GitHub HTTPS repositories are supported.")
+        if not branch or any(ch in branch for ch in ["\n","\r"," ","'","\""]):
+            raise ValueError("Invalid Git branch.")
+        if temp_root.exists():
+            shutil.rmtree(temp_root)
+        temp_root.parent.mkdir(parents=True,exist_ok=True)
+        run_checked(["git","clone","--depth","1","--branch",branch,repo,str(temp_root)])
+        commit=run_checked(["git","-C",str(temp_root),"rev-parse","HEAD"]).stdout.strip()
+        root_path=pathlib.Path(root)
+        root_path.mkdir(parents=True,exist_ok=True)
+        preserved=root_path/".well-known"
+        preserved_backup=None
+        if preserved.exists():
+            preserved_backup=temp_root.parent/(temp_root.name+"-well-known")
+            shutil.copytree(preserved,preserved_backup)
+        for item in root_path.iterdir():
+            if item.name == ".well-known":
+                continue
+            if item.is_dir() and not item.is_symlink():
+                shutil.rmtree(item)
+            else:
+                item.unlink()
+        for item in temp_root.iterdir():
+            if item.name == ".git":
+                continue
+            target=root_path/item.name
+            if item.is_dir():
+                shutil.copytree(item,target,symlinks=False)
+            else:
+                shutil.copy2(item,target)
+        if preserved_backup and preserved_backup.exists() and not preserved.exists():
+            shutil.copytree(preserved_backup,preserved)
+        shutil.rmtree(temp_root,ignore_errors=True)
+        if preserved_backup:
+            shutil.rmtree(preserved_backup,ignore_errors=True)
+        request(base+"/api/agent/jobs/"+str(job["id"])+"/complete",{
+            "status":"completed",
+            "result":{"operation":"git_deploy","commit":commit,"branch":branch,"repository":repo}
+        },auth)
+    except Exception as e:
+        shutil.rmtree(temp_root,ignore_errors=True)
+        request(base+"/api/agent/jobs/"+str(job["id"])+"/complete",{"status":"failed","error":str(e)},auth)
+
 def complete_create_site(job, base, auth):
     p=job.get("payload") or {}
     domain=str(p.get("domain","")).lower().strip()
@@ -586,6 +644,8 @@ while True:
             print("[mPanel] received job",job["id"],job["type"],flush=True)
             if job["type"] == "create_site":
                 complete_create_site(job, base, auth)
+            elif job["type"] == "git_deploy":
+                complete_git_deploy(job, base, auth)
             elif job["type"] == "dns_upsert":
                 complete_dns_upsert(job, base, auth)
             elif job["type"] == "dns_delete":
