@@ -16,6 +16,11 @@ Route::middleware('guest')->group(function () {
 Route::middleware('auth')->group(function () {
     Route::get('/dashboard', [DashboardController::class, 'index'])->name('dashboard');
     Route::resource('websites', WebsiteController::class)->only(['index', 'show']);
+    Route::get('/websites/{website}/ssl', [WebsiteController::class, 'ssl'])->name('websites.ssl');
+    Route::post('/websites/{website}/ssl/issue', [WebsiteController::class, 'sslIssue'])->name('websites.ssl.issue');
+    Route::get('/websites/{website}/ssl/issue/{job}', [WebsiteController::class, 'sslIssueStatus'])->name('websites.ssl.issue.status');
+    Route::post('/websites/{website}/ssl/disable', [WebsiteController::class, 'sslDisable'])->name('websites.ssl.disable');
+    Route::get('/websites/{website}/ssl/disable/{job}', [WebsiteController::class, 'sslDisableStatus'])->name('websites.ssl.disable.status');
     Route::get('/websites/{website}/files', [WebsiteController::class, 'files'])->name('websites.files');
     Route::post('/websites/{website}/files/jobs', [WebsiteController::class, 'filesJob'])->name('websites.files.jobs');
     Route::get('/websites/{website}/files/jobs/{job}', [WebsiteController::class, 'filesJobStatus'])->name('websites.files.jobs.status');
