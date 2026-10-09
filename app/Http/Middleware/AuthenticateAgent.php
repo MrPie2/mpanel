@@ -2,6 +2,7 @@
 
 namespace App\Http\Middleware;
 
+use App\Models\AgentJob;
 use App\Models\Server;
 use Closure;
 use Illuminate\Http\Request;
@@ -13,15 +14,31 @@ class AuthenticateAgent
     public function handle(Request $request, Closure $next): Response
     {
         $routeServer = $request->route('server');
+        $server = null;
 
         if ($routeServer instanceof Server) {
             $server = $routeServer;
         } else {
             $serverId = is_numeric($routeServer)
-                ? $routeServer
+                ? (int) $routeServer
                 : $request->header('X-mPanel-Server');
 
-            $server = $serverId ? Server::find($serverId) : null;
+            if ($serverId) {
+                $server = Server::find($serverId);
+            }
+        }
+
+        // Job completion routes contain {job}, not {server}.
+        // Resolve the owning server from the job when no server was found above.
+        if (!$server) {
+            $routeJob = $request->route('job');
+
+            if ($routeJob instanceof AgentJob) {
+                $server = Server::find($routeJob->server_id);
+            } elseif (is_numeric($routeJob)) {
+                $job = AgentJob::find((int) $routeJob);
+                $server = $job ? Server::find($job->server_id) : null;
+            }
         }
 
         $token = $request->bearerToken();
