@@ -39,7 +39,23 @@ def valid_domain(domain):
     return bool(re.fullmatch(r"(?:[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?\.)+[A-Za-z]{2,63}", domain))
 
 def run_checked(args):
-    return subprocess.run(args, check=True, capture_output=True, text=True, timeout=30)
+    result = subprocess.run(
+        args,
+        check=False,
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    if result.returncode != 0:
+        details = (result.stderr or result.stdout or "").strip()
+        command = " ".join(str(part) for part in args)
+        message = f"Command '{command}' failed with exit code {result.returncode}"
+        if details:
+            message += f": {details}"
+        else:
+            message += " (no stdout/stderr was returned)"
+        raise RuntimeError(message)
+    return result
 
 
 
