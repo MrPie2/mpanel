@@ -1,0 +1,26 @@
+name: mPanel agent checks
+
+on:
+  push:
+    branches: ["main", "fix/agent-provisioning-reliability"]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  syntax:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check Python agent syntax
+        run: python3 -m py_compile agent/mpanel-agent.py
+      - name: Check installer shell syntax
+        run: bash -n agent/install.sh
+      - name: Set up PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: "8.3"
+          tools: none
+      - name: Check changed PHP controller syntax
+        run: php -l app/Http/Controllers/AgentController.php
