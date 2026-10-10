@@ -23,11 +23,11 @@ class DnsController extends Controller
         $this->authorizeWebsite($request, $website);
 
         $data = $request->validate([
-            'type' => ['required','in:A,AAAA,CNAME,MX,TXT,NS'],
+            'type' => ['required','in:A,AAAA,CNAME,MX,TXT,NS,CAA,SRV,SVCB,HTTPS'],
             'name' => ['required','string','max:253'],
-            'value' => ['required','string','max:2000'],
+            'value' => ['required','string','max:2000','not_regex:/[\r\n]/'],
             'ttl' => ['required','integer','between:60,86400'],
-            'priority' => ['nullable','integer','between:0,65535'],
+            'priority' => [in_array($request->input('type'), ['MX','SRV'], true) ? 'required' : 'nullable','integer','between:0,65535'],
         ]);
 
         $record = DnsRecord::create(['website_id'=>$website->id,...$data]);
