@@ -743,6 +743,131 @@ def complete_create_site(job, base, auth):
     except Exception as report_error:
         print("[mPanel] site provisioned but completion could not be reported; it will be retried: "+str(report_error),flush=True)
 
+def terminal_linux_username(website_id):
+    """Return a stable OS username derived only from the internal numeric website ID."""
+    value = int(website_id)
+    if value < 1:
+        raise ValueError("A positive website ID is required.")
+    alphabet = "0123456789abcdefghijklmnopqrstuvwxyz"
+    encoded = ""
+    while value:
+        value, remainder = divmod(value, 36)
+        encoded = alphabet[remainder] + encoded
+    username = "mpw" + encoded
+    if len(username) > 32:
+        raise ValueError("Website ID cannot be represented as a Linux username.")
+    return username
+
+
+def complete_terminal_isolation_audit(job, base, auth):
+    """Read-only preflight: never changes ownership, creates accounts, or enables a terminal."""
+    p = job.get("payload") or {}
+    checks = []
+    try:
+        website_id = int(p.get("website_id", 0))
+        domain = str(p.get("domain", ""))
+        if website_id < 1:
+            raise ValueError("A positive website ID is required.")
+        if not valid_domain(domain):
+            raise ValueError("Invalid domain supplied.")
+
+        username = terminal_linux_username(website_id)
+        root = "/var/www/" + domain
+        root_path = pathlib.Path(root)
+        canonical_root = root_path.resolve(strict=False)
+        root_is_safe = (
+            not root_path.is_symlink()
+            and str(canonical_root) == root
+            and root_path.exists()
+            and root_path.is_dir()
+        )
+        checks.append({
+            "name": "canonical_document_root",
+            "passed": root_is_safe,
+            "detail": "Expected canonical document root exists." if root_is_safe else
+                      "Expected document root is missing, is a symlink, or resolves outside its canonical path."
+        })
+
+        import pwd
+        try:
+            account = pwd.getpwnam(username)
+            account_exists = account.pw_uid != 0
+        except KeyError:
+            account = None
+            account_exists = False
+        checks.append({
+            "name": "dedicated_unprivileged_linux_account",
+            "passed": account_exists,
+            "detail": "Dedicated non-root account exists." if account_exists else
+                      "Dedicated non-root account is not provisioned."
+        })
+
+        ownership_ok = False
+        if root_is_safe and account is not None:
+            root_stat = root_path.stat()
+            ownership_ok = root_stat.st_uid == account.pw_uid and (root_stat.st_mode & 0o022) == 0
+        checks.append({
+            "name": "document_root_ownership",
+            "passed": ownership_ok,
+            "detail": "Document root is owned by the site account and is not group/world writable."
+                      if ownership_ok else
+                      "Ownership or permissions do not meet the site-account policy; no changes were made."
+        })
+
+        import re
+        pool_paths = sorted(pathlib.Path("/etc/php").glob("*/fpm/pool.d/mpanel-" + username + ".conf"))
+        pool_path = pool_paths[0] if len(pool_paths) == 1 else None
+        pool_text = pool_path.read_text(encoding="utf-8", errors="replace") if pool_path and pool_path.is_file() else ""
+        pool_user_ok = bool(
+            pool_text
+            and re.search(r"^\s*user\s*=\s*" + re.escape(username) + r"\s*$", pool_text, re.M)
+            and re.search(r"^\s*group\s*=\s*" + re.escape(username) + r"\s*$", pool_text, re.M)
+        )
+        checks.append({
+            "name": "dedicated_php_fpm_pool",
+            "passed": pool_user_ok,
+            "detail": "A dedicated PHP-FPM pool declares the site account as user and group."
+                      if pool_user_ok else
+                      "A verified per-site PHP-FPM pool is not configured."
+        })
+
+        nginx_path = pathlib.Path("/etc/nginx/sites-available") / domain
+        nginx_text = nginx_path.read_text(encoding="utf-8", errors="replace") if nginx_path.is_file() and not nginx_path.is_symlink() else ""
+        socket_match = re.search(r"^\s*listen\s*=\s*(\S+)\s*$", pool_text, re.M) if pool_text else None
+        pool_socket = socket_match.group(1) if socket_match else ""
+        nginx_uses_pool = bool(pool_socket and pool_socket in nginx_text)
+        checks.append({
+            "name": "nginx_uses_site_php_socket",
+            "passed": nginx_uses_pool,
+            "detail": "The mPanel Nginx vhost references the dedicated PHP-FPM socket."
+                      if nginx_uses_pool else
+                      "The Nginx vhost is not verified to use the dedicated site PHP-FPM socket."
+        })
+
+        # Never infer readiness: the gateway and OS-enforced session sandbox do not exist yet.
+        checks.append({
+            "name": "terminal_gateway_and_sandbox",
+            "passed": False,
+            "detail": "Interactive gateway, PTY lifecycle controls, and resource-enforced sandbox are not implemented."
+        })
+
+        result = {
+            "website_id": website_id,
+            "domain": domain,
+            "linux_user": username,
+            "status": "blocked",
+            "ready": False,
+            "read_only": True,
+            "checks": checks,
+            "message": "Preflight only. No account, ownership, PHP-FPM, Nginx, or readiness state was changed."
+        }
+        request(base + "/api/agent/jobs/" + str(job["id"]) + "/complete",
+                {"status": "completed", "result": result}, auth)
+    except Exception as e:
+        request(base + "/api/agent/jobs/" + str(job["id"]) + "/complete",
+                {"status": "failed", "error": str(e)}, auth)
+
+
 def load_token():
     try:
         with open(TOKEN_FILE) as f: return f.read().strip()
@@ -797,6 +922,8 @@ while True:
                 complete_download_file(job, base, auth)
             elif job["type"] == "upload_file":
                 complete_upload_file(job, base, auth)
+            elif job["type"] == "terminal_isolation_audit":
+                complete_terminal_isolation_audit(job, base, auth)
             else:
                 result={"message":"Operation not implemented by this Agent version."}
                 request(base+"/api/agent/jobs/"+str(job["id"])+"/complete",
