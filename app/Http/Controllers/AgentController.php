@@ -8,6 +8,7 @@ use App\Models\Website;
 use App\Models\HostingDatabase;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Str;
 
@@ -67,8 +68,16 @@ class AgentController extends Controller
     {
         $server=$request->attributes->get('agent_server');
 
-        $jobs=AgentJob::where('server_id',$server->id)
-            ->where('status','queued')
+        // Requeue abandoned claims after 30 minutes. This recovers jobs that were
+        // claimed just before an agent crash or a temporary control-plane outage.
+        AgentJob::where('server_id', $server->id)
+            ->where('status', 'claimed')
+            ->whereNotNull('claimed_at')
+            ->where('claimed_at', '<', now()->subMinutes(30))
+            ->update(['status' => 'queued', 'claimed_at' => null]);
+
+        $jobs = AgentJob::where('server_id', $server->id)
+            ->where('status', 'queued')
             ->orderBy('id')
             ->limit(10)
             ->get();
@@ -101,37 +110,39 @@ class AgentController extends Controller
             'error'=>['nullable','string','max:5000'],
         ]);
 
-        $job->update([
-            'status'=>$data['status'],
-            'result'=>$data['result'] ?? null,
-            'error'=>$data['error'] ?? null,
-            'completed_at'=>now(),
-        ]);
+        return DB::transaction(function () use ($job, $server, $data): JsonResponse {
+            $job->update([
+                'status'=>$data['status'],
+                'result'=>$data['result'] ?? null,
+                'error'=>$data['error'] ?? null,
+                'completed_at'=>now(),
+            ]);
 
-        if (in_array($job->type, ['create_database','delete_database'], true) && !empty($job->payload['database_id'])) {
-            $database=HostingDatabase::find($job->payload['database_id']);
+            if (in_array($job->type, ['create_database','delete_database'], true) && !empty($job->payload['database_id'])) {
+                $database=HostingDatabase::find($job->payload['database_id']);
 
-            if ($database && $database->server_id === $server->id) {
-                $database->update([
-                    'status'=>$data['status'] === 'completed'
-                        ? ($job->type === 'delete_database' ? 'deleted' : 'active')
-                        : 'failed',
-                    'last_error'=>$data['status'] === 'failed' ? $data['error'] : null,
-                ]);
+                if ($database && $database->server_id === $server->id) {
+                    $database->update([
+                        'status'=>$data['status'] === 'completed'
+                            ? ($job->type === 'delete_database' ? 'deleted' : 'active')
+                            : 'failed',
+                        'last_error'=>$data['status'] === 'failed' ? $data['error'] : null,
+                    ]);
+                }
             }
-        }
 
-        if ($job->type === 'create_site' && !empty($job->payload['website_id'])) {
-            $website=Website::find($job->payload['website_id']);
+            if ($job->type === 'create_site' && !empty($job->payload['website_id'])) {
+                $website=Website::find($job->payload['website_id']);
 
-            if ($website && $website->server_id === $server->id) {
-                $website->update([
-                    'status'=>$data['status'] === 'completed' ? 'active' : 'failed',
-                ]);
+                if ($website && $website->server_id === $server->id) {
+                    $website->update([
+                        'status'=>$data['status'] === 'completed' ? 'active' : 'failed',
+                    ]);
+                }
             }
-        }
 
-        return response()->json(['status'=>'ok']);
+            return response()->json(['status'=>'ok']);
+        });
     }
 
 }
