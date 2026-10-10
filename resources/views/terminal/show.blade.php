@@ -31,6 +31,35 @@
     </div>
 </div>
 
+@if (session('status'))
+<div class="mp-card" role="status" style="margin-bottom:16px">{{ session('status') }}</div>
+@endif
+
+@if ($latestAudit)
+<div class="mp-card" style="margin-bottom:18px">
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap">
+        <strong>Isolation preflight</strong>
+        <span class="mp-sub">Job #{{ $latestAudit->id }} · {{ ucfirst($latestAudit->status) }}</span>
+    </div>
+    @if ($latestAudit->status === 'completed' && is_array($latestAudit->result))
+        <p class="mp-sub" style="margin:8px 0 12px">{{ $latestAudit->result['message'] ?? 'Read-only audit completed.' }}</p>
+        <div style="display:grid;gap:8px">
+            @foreach (($latestAudit->result['checks'] ?? []) as $check)
+                <div style="display:flex;gap:10px;align-items:flex-start">
+                    <span aria-hidden="true">{{ ($check['passed'] ?? false) ? '✓' : '•' }}</span>
+                    <div><strong>{{ str_replace('_', ' ', $check['name'] ?? 'Check') }}</strong><div class="mp-sub">{{ $check['detail'] ?? '' }}</div></div>
+                </div>
+            @endforeach
+        </div>
+        <p class="mp-sub" style="margin:12px 0 0">This report is diagnostic only. Interactive terminal sessions remain disabled.</p>
+    @elseif ($latestAudit->status === 'failed')
+        <p class="mp-sub" style="margin:8px 0 0">The agent could not complete the audit. Check the server agent logs before retrying.</p>
+    @else
+        <p class="mp-sub" style="margin:8px 0 0">Waiting for the mPanel agent to process the read-only audit.</p>
+    @endif
+</div>
+@endif
+
 <div class="mp-terminal-window">
     <div class="mp-terminal-top">
         <span class="mp-terminal-dot"></span><span class="mp-terminal-dot"></span><span class="mp-terminal-dot"></span>
@@ -43,6 +72,10 @@
     </div>
 </div>
 <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:14px">
+    <form method="POST" action="{{ route('websites.terminal.audit', $website) }}">
+        @csrf
+        <button class="mp-secondary-btn" type="submit">Run isolation audit</button>
+    </form>
     <button class="mp-primary-btn mp-terminal-disabled" type="button" disabled aria-disabled="true">Start session</button>
     <span class="mp-sub" style="align-self:center">Planned: PHP · Composer · Git · Node.js (subject to plan)</span>
 </div>
