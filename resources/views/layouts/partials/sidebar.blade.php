@@ -11,7 +11,7 @@
         <a href="#"><i>◇</i><span>DNS Manager</span></a>
         <a href="#"><i>▣</i><span>SSL Certificates</span></a>
         <a href="#"><i>↗</i><span>Git Deployments</span></a>
-        <a class="{{ request()->routeIs('terminal.*') ? 'active' : '' }}" href="{{ route('terminal.index') }}"><i>⌘</i><span>Web Terminal</span></a>
+        <a class="{{ (request()->routeIs('terminal.*') || request()->routeIs('websites.terminal')) ? 'active' : '' }}" href="{{ route('terminal.index') }}"><i>⌘</i><span>Web Terminal</span></a>
         <a href="#"><i>◫</i><span>Backups</span></a>
     </nav>
     <div class="mp-section-label">System</div>
