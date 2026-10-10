@@ -447,8 +447,10 @@ def dns_zone_path(domain):
         raise ValueError("Invalid DNS domain.")
     return pathlib.Path("/etc/bind/zones")/(domain+".db")
 
+
 def dns_escape(value):
-    return str(value).replace("\\","\\\\").replace('"','\\"')
+    return str(value).replace("\\", "\\\\").replace('"', '\\"')
+
 
 def dns_record_line(record):
     rtype=str(record.get("type","")).upper()
@@ -456,39 +458,104 @@ def dns_record_line(record):
     value=str(record.get("value","")).strip()
     ttl=int(record.get("ttl",3600))
     priority=record.get("priority")
-    if rtype not in {"A","AAAA","CNAME","MX","TXT","NS"}:
+    if rtype not in {"A","AAAA","CNAME","MX","TXT","NS","CAA","SRV","SVCB","HTTPS"}:
         raise ValueError("Unsupported DNS record type.")
-    if not name or any(x in name for x in ["\n","\r"]):
+    if not name or any(x in name for x in ["\n","\r"," ","\t"]):
         raise ValueError("Invalid DNS record name.")
+    if not value or any(x in value for x in ["\n","\r"]):
+        raise ValueError("Invalid DNS record value.")
     if ttl < 60 or ttl > 86400:
-        raise ValueError("Invalid DNS TTL.")
+        raise ValueError("DNS TTL must be between 60 and 86400.")
+    if rtype in {"MX","SRV"}:
+        if priority is None:
+            raise ValueError(rtype+" priority is required.")
+        priority=int(priority)
+        if priority < 0 or priority > 65535:
+            raise ValueError("Invalid DNS priority.")
+        value=str(priority)+" "+value
     if rtype == "TXT":
         value='"'+dns_escape(value)+'"'
-    elif rtype == "MX":
-        if priority is None: raise ValueError("MX priority is required.")
-        value=str(int(priority))+" "+value
     return f"{name} {ttl} IN {rtype} {value}"
 
-def bind_reload():
-    if not shutil.which("named-checkzone") or not shutil.which("rndc"):
-        raise ValueError("BIND9 DNS tools are not installed on this server.")
-    run_checked(["systemctl","reload","bind9"])
+
+def ensure_dns_zone(domain):
+    if not valid_domain(domain):
+        raise ValueError("Invalid DNS domain.")
+    if not shutil.which("named-checkzone"):
+        raise ValueError("BIND9 is not installed. Install bind9 and bind9-utils, then retry.")
+    zones=pathlib.Path("/etc/bind/zones")
+    zones.mkdir(parents=True,exist_ok=True)
+    zone=zones/(domain+".db")
+    local_conf=pathlib.Path("/etc/bind/named.conf.local")
+    if not local_conf.exists():
+        raise ValueError("BIND9 configuration /etc/bind/named.conf.local was not found.")
+    config='zone "'+domain+'" { type master; file "'+str(zone)+'"; };'
+    conf=local_conf.read_text(encoding="utf-8")
+    if config not in conf:
+        with local_conf.open("a",encoding="utf-8") as handle:
+            handle.write("\n\n// Managed by mPanel\n"+config+"\n")
+    if not zone.exists():
+        serial=int(time.strftime("%Y%m%d%H"))
+        initial=(
+            "$TTL 3600\n"
+            "@ IN SOA ns1."+domain+". hostmaster."+domain+". (\n"
+            "  "+str(serial)+" ; serial\n"
+            "  3600 ; refresh\n"
+            "  900 ; retry\n"
+            "  1209600 ; expire\n"
+            "  300 ; negative cache\n"
+            ")\n"
+            "@ IN NS ns1."+domain+".\n"
+            "@ IN NS ns2."+domain+".\n"
+        )
+        zone.write_text(initial,encoding="utf-8")
+    return zone
+
+
+def write_zone_safely(domain, zone, lines):
+    original=zone.read_text(encoding="utf-8")
+    serial=int(time.strftime("%Y%m%d%H"))
+    updated=[]
+    serial_replaced=False
+    for line in lines:
+        if not serial_replaced and "; serial" in line:
+            import re
+            match=re.search(r"(\\d+)\\s*; serial",line)
+            if match:
+                serial=max(serial,int(match.group(1))+1)
+            updated.append("  "+str(serial)+" ; serial")
+            serial_replaced=True
+        else:
+            updated.append(line)
+    if not serial_replaced:
+        updated=lines
+    temp=zone.with_suffix(".db.mpanel-tmp")
+    temp.write_text("\n".join(updated)+"\n",encoding="utf-8")
+    try:
+        run_checked(["named-checkzone",domain,str(temp)])
+        run_checked(["named-checkconf"])
+        os.replace(temp,zone)
+        run_checked(["systemctl","reload","bind9"])
+    except Exception:
+        temp.unlink(missing_ok=True)
+        zone.write_text(original,encoding="utf-8")
+        raise
+
 
 def complete_dns_upsert(job, base, auth):
     p=job.get("payload") or {}
     domain=str(p.get("domain","")).lower().strip()
     try:
-        zone=dns_zone_path(domain)
-        if not zone.exists():
-            raise ValueError("DNS zone is not managed by mPanel on this server.")
-        records=pathlib.Path(zone).read_text().splitlines()
+        zone=ensure_dns_zone(domain)
         line=dns_record_line(p)
-        records.append(line)
-        pathlib.Path(zone).write_text("\n".join(records)+"\n")
-        bind_reload()
-        request(base+"/api/agent/jobs/"+str(job["id"])+"/complete",{"status":"completed","result":{"operation":"dns_upsert","record_id":p.get("record_id")}},auth)
+        records=zone.read_text(encoding="utf-8").splitlines()
+        if line not in records:
+            records.append(line)
+        write_zone_safely(domain,zone,records)
+        request(base+"/api/agent/jobs/"+str(job["id"])+"/complete",{"status":"completed","result":{"operation":"dns_upsert","record_id":p.get("record_id"),"domain":domain}},auth)
     except Exception as e:
         request(base+"/api/agent/jobs/"+str(job["id"])+"/complete",{"status":"failed","error":str(e)},auth)
+
 
 def complete_dns_delete(job, base, auth):
     p=job.get("payload") or {}
@@ -498,12 +565,12 @@ def complete_dns_delete(job, base, auth):
         if not zone.exists():
             raise ValueError("DNS zone is not managed by mPanel on this server.")
         target=dns_record_line(p)
-        lines=pathlib.Path(zone).read_text().splitlines()
-        if target in lines:
-            lines.remove(target)
-        pathlib.Path(zone).write_text("\n".join(lines)+"\n")
-        bind_reload()
-        request(base+"/api/agent/jobs/"+str(job["id"])+"/complete",{"status":"completed","result":{"operation":"dns_delete","record_id":p.get("record_id")}},auth)
+        lines=zone.read_text(encoding="utf-8").splitlines()
+        if target not in lines:
+            raise ValueError("DNS record was not found in the zone; no change was made.")
+        lines.remove(target)
+        write_zone_safely(domain,zone,lines)
+        request(base+"/api/agent/jobs/"+str(job["id"])+"/complete",{"status":"completed","result":{"operation":"dns_delete","record_id":p.get("record_id"),"domain":domain}},auth)
     except Exception as e:
         request(base+"/api/agent/jobs/"+str(job["id"])+"/complete",{"status":"failed","error":str(e)},auth)
 
