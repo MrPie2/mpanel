@@ -26,7 +26,7 @@
         <div style="font-size:22px">🔒</div>
         <div>
             <strong>Terminal execution is not enabled yet</strong>
-            <p class="mp-sub" style="margin:4px 0 0">This workspace is a UI foundation only. mPanel will enable commands after the isolated terminal gateway and per-account Linux permissions are implemented and tested. No commands are sent to the server from this page.</p>
+            <p class="mp-sub" style="margin:4px 0 0">This workspace is a UI foundation only. Website isolation is currently {{ str_replace("-", " ", $website->terminal_isolation_status ?? "pending") }}. mPanel will enable commands only after a dedicated Linux identity, filesystem permissions, isolated PHP runtime, and terminal gateway are configured and verified. No commands are sent to the server from this page.</p>
         </div>
     </div>
 </div>
@@ -35,10 +35,10 @@
     <div class="mp-terminal-top">
         <span class="mp-terminal-dot"></span><span class="mp-terminal-dot"></span><span class="mp-terminal-dot"></span>
         <span style="margin-left:8px;font-size:12px;color:#9dafa5">{{ $website->domain }} · Shell preview</span>
-        <span style="margin-left:auto;font-size:11px;color:#d7b36a">Gateway not configured</span>
+        <span style="margin-left:auto;font-size:11px;color:#d7b36a">Isolation: {{ ucfirst($website->terminal_isolation_status ?? "pending") }}</span>
     </div>
     <div class="mp-terminal-body">
-        <div><span class="mp-terminal-prompt">siteuser@mpanel:~/public_html$</span> <span style="color:#91a39a">_</span></div>
+        <div><span class="mp-terminal-prompt">preview@mpanel:~$</span> <span style="color:#91a39a">_</span></div>
         <div style="margin-top:12px;color:#82948a">Your interactive shell will appear here once secure terminal sessions are available.</div>
     </div>
 </div>
