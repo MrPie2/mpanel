@@ -50,7 +50,7 @@ NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
 ProtectHome=true
-ReadWritePaths=/opt/mpanel-agent /var/www /etc/nginx/sites-available /etc/nginx/sites-enabled /etc/letsencrypt /var/lib/letsencrypt /var/log/letsencrypt
+ReadWritePaths=/opt/mpanel-agent /var/www /etc/nginx/sites-available /etc/nginx/sites-enabled /etc/letsencrypt /var/lib/letsencrypt /var/log/letsencrypt /run/nginx.pid
 
 [Install]
 WantedBy=multi-user.target
