@@ -759,6 +759,94 @@ def terminal_linux_username(website_id):
     return username
 
 
+def terminal_filesystem_inventory(root_path, max_entries=50000):
+    """Read-only, bounded inventory for planning a safe ownership migration."""
+    import collections
+    import stat
+
+    summary = {
+        "complete": True,
+        "entries_scanned": 0,
+        "files": 0,
+        "directories": 0,
+        "symlinks": 0,
+        "group_or_world_writable": 0,
+        "unreadable_paths": 0,
+        "owner_uid_counts": {},
+        "writable_directory_samples": [],
+        "symlink_samples": [],
+        "limit": max_entries,
+    }
+    owners = collections.Counter()
+    root_path = pathlib.Path(root_path)
+
+    def record_path(path, is_directory=False):
+        if summary["entries_scanned"] >= max_entries:
+            summary["complete"] = False
+            return False
+        summary["entries_scanned"] += 1
+        try:
+            info = path.lstat()
+        except OSError:
+            summary["unreadable_paths"] += 1
+            return True
+        owners[str(info.st_uid)] += 1
+        if stat.S_ISLNK(info.st_mode):
+            summary["symlinks"] += 1
+            if len(summary["symlink_samples"]) < 20:
+                summary["symlink_samples"].append(str(path.relative_to(root_path)))
+            return True
+        if stat.S_ISDIR(info.st_mode):
+            summary["directories"] += 1
+            if info.st_mode & 0o022:
+                summary["group_or_world_writable"] += 1
+                if len(summary["writable_directory_samples"]) < 20:
+                    summary["writable_directory_samples"].append(str(path.relative_to(root_path)) or ".")
+        else:
+            summary["files"] += 1
+            if info.st_mode & 0o022:
+                summary["group_or_world_writable"] += 1
+        return True
+
+    if not root_path.exists() or not root_path.is_dir() or root_path.is_symlink():
+        summary["complete"] = False
+        summary["error"] = "Document root is missing, not a directory, or is a symlink."
+        return summary
+
+    try:
+        if not record_path(root_path, is_directory=True):
+            return summary
+        for current, dirs, files in os.walk(root_path, topdown=True, followlinks=False):
+            current_path = pathlib.Path(current)
+            safe_dirs = []
+            for name in dirs:
+                path = current_path / name
+                if summary["entries_scanned"] >= max_entries:
+                    summary["complete"] = False
+                    break
+                if not record_path(path, is_directory=True):
+                    summary["complete"] = False
+                    break
+                if not path.is_symlink():
+                    safe_dirs.append(name)
+            dirs[:] = safe_dirs
+            if not summary["complete"]:
+                break
+            for name in files:
+                if not record_path(current_path / name):
+                    summary["complete"] = False
+                    break
+            if not summary["complete"]:
+                break
+    except OSError:
+        summary["complete"] = False
+        summary["unreadable_paths"] += 1
+
+    summary["owner_uid_counts"] = dict(owners.most_common(20))
+    summary["owner_uid_counts_truncated"] = len(owners) > 20
+    return summary
+
+
 def complete_terminal_isolation_audit(job, base, auth):
     """Read-only preflight: never changes ownership, creates accounts, or enables a terminal."""
     p = job.get("payload") or {}
