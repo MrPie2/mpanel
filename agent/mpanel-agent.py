@@ -576,6 +576,7 @@ def complete_create_site(job, base, auth):
     enabled_path=enabled_dir/domain
     created_config=False
     created_link=False
+
     try:
         if not valid_domain(domain):
             raise ValueError("Invalid domain supplied.")
@@ -595,7 +596,7 @@ def complete_create_site(job, base, auth):
             index_path.write_text(
                 "<!doctype html><html><head><meta charset=\"utf-8\"><title>"+domain+
                 "</title></head><body><h1>"+domain+
-                "</h1><p>Website provisioned by mPanel.</p></body></html>\\n",
+                "</h1><p>Website provisioned by mPanel.</p></body></html>\n",
                 encoding="utf-8"
             )
 
@@ -610,7 +611,7 @@ def complete_create_site(job, base, auth):
         try_files $uri $uri/ /index.php?$query_string;
     }
 
-    location ~ \\.php$ {
+    location ~ \.php$ {
         include snippets/fastcgi-php.conf;
         fastcgi_pass unix:SOCKET;
     }
@@ -648,6 +649,19 @@ def complete_create_site(job, base, auth):
                 os.unlink(config_path)
             raise
 
+    except Exception as e:
+        error=str(e)
+        try:
+            request(base+"/api/agent/jobs/"+str(job["id"])+"/complete",
+                    {"status":"failed","error":error},auth)
+        except Exception as report_error:
+            print("[mPanel] could not report create_site failure:",report_error,flush=True)
+        print("[mPanel] create_site job failed:",error,flush=True)
+        return
+
+    # Do not mark a successful provision failed just because the completion API
+    # is temporarily unavailable. A stale claimed job will be retried later.
+    try:
         request(base+"/api/agent/jobs/"+str(job["id"])+"/complete", {
             "status":"completed",
             "result":{
@@ -659,15 +673,8 @@ def complete_create_site(job, base, auth):
                 "mode":"provisioned"
             }
         }, auth)
-    except Exception as e:
-        # Preserve the original provisioning error even if reporting to Laravel fails.
-        error=str(e)
-        try:
-            request(base+"/api/agent/jobs/"+str(job["id"])+"/complete",
-                    {"status":"failed","error":error},auth)
-        except Exception as report_error:
-            print("[mPanel] could not report create_site failure:",report_error,flush=True)
-        print("[mPanel] create_site job failed:",error,flush=True)
+    except Exception as report_error:
+        print("[mPanel] site provisioned but completion could not be reported; it will be retried: "+str(report_error),flush=True)
 
 def load_token():
     try:
