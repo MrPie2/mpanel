@@ -178,8 +178,9 @@ class AgentController extends Controller
                     ($gatewayCheck['passed'] ?? true) === false
                 ) {
                     $linuxUser = $audit['linux_user'] ?? null;
+                    $expectedLinuxUser = 'mpw' . base_convert((string) $website->id, 10, 36);
                     $website->update([
-                        'terminal_linux_user' => is_string($linuxUser) && preg_match('/^mpw[0-9a-z]+$/', $linuxUser)
+                        'terminal_linux_user' => is_string($linuxUser) && hash_equals($expectedLinuxUser, $linuxUser)
                             ? $linuxUser
                             : null,
                         'terminal_isolation_status' => 'blocked',
