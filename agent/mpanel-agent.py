@@ -813,10 +813,19 @@ def terminal_filesystem_inventory(root_path, max_entries=50000):
         summary["error"] = "Document root is missing, not a directory, or is a symlink."
         return summary
 
+    def record_walk_error(error):
+        # os.walk otherwise silently skips unreadable subdirectories when no
+        # onerror callback is supplied, which could make a partial inventory
+        # look complete and mislead a future ownership migration.
+        summary["complete"] = False
+        summary["unreadable_paths"] += 1
+
     try:
         if not record_path(root_path, is_directory=True):
             return summary
-        for current, dirs, files in os.walk(root_path, topdown=True, followlinks=False):
+        for current, dirs, files in os.walk(
+            root_path, topdown=True, onerror=record_walk_error, followlinks=False
+        ):
             current_path = pathlib.Path(current)
             safe_dirs = []
             for name in dirs:
