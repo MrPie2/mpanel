@@ -27,6 +27,11 @@ mkdir -p "$INSTALL_DIR"
 # builds the service namespace. These directories are also used by Certbot.
 mkdir -p /etc/nginx/sites-available /etc/nginx/sites-enabled
 mkdir -p /etc/letsencrypt /var/lib/letsencrypt /var/log/letsencrypt
+mkdir -p /etc/bind/zones
+if command -v apt-get >/dev/null 2>&1 && ! command -v named-checkzone >/dev/null 2>&1; then
+    apt-get update
+    DEBIAN_FRONTEND=noninteractive apt-get install -y bind9 bind9-utils
+fi
 
 install -m 0755 "$SOURCE_DIR/mpanel-agent.py" "$INSTALL_DIR/mpanel-agent.py"
 
@@ -56,7 +61,7 @@ NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
 ProtectHome=true
-ReadWritePaths=/opt/mpanel-agent /var/www /etc/nginx/sites-available /etc/nginx/sites-enabled /etc/letsencrypt /var/lib/letsencrypt /var/log/letsencrypt /run/nginx.pid
+ReadWritePaths=/opt/mpanel-agent /var/www /etc/nginx/sites-available /etc/nginx/sites-enabled /etc/letsencrypt /var/lib/letsencrypt /var/log/letsencrypt /etc/bind/zones /etc/bind/named.conf.local /run/nginx.pid
 
 [Install]
 WantedBy=multi-user.target
