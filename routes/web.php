@@ -24,6 +24,7 @@ Route::middleware('auth')->group(function () {
     Route::resource('websites', WebsiteController::class)->only(['index', 'show']);
     Route::get('/terminal', [TerminalController::class, 'index'])->name('terminal.index');
     Route::get('/websites/{website}/terminal', [TerminalController::class, 'show'])->name('websites.terminal');
+    Route::post('/websites/{website}/terminal/audit', [TerminalController::class, 'audit'])->name('websites.terminal.audit');
     Route::get('/databases', [DatabaseController::class, 'index'])->name('databases.index');
     Route::get('/databases/create', [DatabaseController::class, 'create'])->name('databases.create');
     Route::post('/databases', [DatabaseController::class, 'store'])->name('databases.store');
