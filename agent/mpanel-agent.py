@@ -939,6 +939,7 @@ def complete_terminal_isolation_audit(job, base, auth):
             "detail": "Interactive gateway, PTY lifecycle controls, and resource-enforced sandbox are not implemented."
         })
 
+        inventory = terminal_filesystem_inventory(root_path)
         result = {
             "website_id": website_id,
             "domain": domain,
@@ -947,7 +948,8 @@ def complete_terminal_isolation_audit(job, base, auth):
             "ready": False,
             "read_only": True,
             "checks": checks,
-            "message": "Preflight only. No account, ownership, PHP-FPM, Nginx, or readiness state was changed."
+            "migration_inventory": inventory,
+            "message": "Read-only preflight and bounded filesystem inventory only. No account, ownership, PHP-FPM, Nginx, or readiness state was changed."
         }
         request(base + "/api/agent/jobs/" + str(job["id"]) + "/complete",
                 {"status": "completed", "result": result}, auth)
