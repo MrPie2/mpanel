@@ -67,8 +67,16 @@ class AgentController extends Controller
     {
         $server=$request->attributes->get('agent_server');
 
-        $jobs=AgentJob::where('server_id',$server->id)
-            ->where('status','queued')
+        // Requeue abandoned claims after 30 minutes. This recovers jobs that were
+        // claimed just before an agent crash or a temporary control-plane outage.
+        AgentJob::where('server_id', $server->id)
+            ->where('status', 'claimed')
+            ->whereNotNull('claimed_at')
+            ->where('claimed_at', '<', now()->subMinutes(30))
+            ->update(['status' => 'queued', 'claimed_at' => null]);
+
+        $jobs = AgentJob::where('server_id', $server->id)
+            ->where('status', 'queued')
             ->orderBy('id')
             ->limit(10)
             ->get();
