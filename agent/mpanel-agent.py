@@ -519,6 +519,10 @@ def write_zone_safely(domain, zone, lines):
     serial_replaced=False
     for line in lines:
         if not serial_replaced and "; serial" in line:
+            import re
+            match=re.search(r"(\\d+)\\s*; serial",line)
+            if match:
+                serial=max(serial,int(match.group(1))+1)
             updated.append("  "+str(serial)+" ; serial")
             serial_replaced=True
         else:
