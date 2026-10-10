@@ -51,6 +51,43 @@
                 </div>
             @endforeach
         </div>
+        @php($inventory = $latestAudit->result['migration_inventory'] ?? null)
+        @if (is_array($inventory))
+            <div style="margin-top:18px;padding-top:16px;border-top:1px solid var(--border)">
+                <strong>Filesystem migration inventory</strong>
+                <p class="mp-sub" style="margin:5px 0 12px">Read-only snapshot used to plan a safe ownership migration. It does not change files or permissions.</p>
+                <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:10px">
+                    <div class="mp-card"><div class="mp-sub">Entries scanned</div><strong>{{ number_format((int) ($inventory['entries_scanned'] ?? 0)) }}</strong></div>
+                    <div class="mp-card"><div class="mp-sub">Files</div><strong>{{ number_format((int) ($inventory['files'] ?? 0)) }}</strong></div>
+                    <div class="mp-card"><div class="mp-sub">Directories</div><strong>{{ number_format((int) ($inventory['directories'] ?? 0)) }}</strong></div>
+                    <div class="mp-card"><div class="mp-sub">Symlinks</div><strong>{{ number_format((int) ($inventory['symlinks'] ?? 0)) }}</strong></div>
+                    <div class="mp-card"><div class="mp-sub">Writable entries</div><strong>{{ number_format((int) ($inventory['group_or_world_writable'] ?? 0)) }}</strong></div>
+                    <div class="mp-card"><div class="mp-sub">Unreadable paths</div><strong>{{ number_format((int) ($inventory['unreadable_paths'] ?? 0)) }}</strong></div>
+                </div>
+                <p class="mp-sub" style="margin:10px 0 0">
+                    Scan {{ ($inventory['complete'] ?? false) ? 'completed' : 'was partial or reached its safety limit' }}.
+                    Owner UID counts (top 20): {{ json_encode($inventory['owner_uid_counts'] ?? (object) []) }}.
+                </p>
+                @if (!empty($inventory['writable_directory_samples']))
+                    <div style="margin-top:10px"><span class="mp-sub">Sample group/world-writable paths:</span>
+                        <ul style="margin:5px 0 0;padding-left:20px">
+                            @foreach ($inventory['writable_directory_samples'] as $path)
+                                <li><code>{{ $path }}</code></li>
+                            @endforeach
+                        </ul>
+                    </div>
+                @endif
+                @if (!empty($inventory['symlink_samples']))
+                    <div style="margin-top:10px"><span class="mp-sub">Sample symbolic links (review before migration):</span>
+                        <ul style="margin:5px 0 0;padding-left:20px">
+                            @foreach ($inventory['symlink_samples'] as $path)
+                                <li><code>{{ $path }}</code></li>
+                            @endforeach
+                        </ul>
+                    </div>
+                @endif
+            </div>
+        @endif
         <p class="mp-sub" style="margin:12px 0 0">This report is diagnostic only. Interactive terminal sessions remain disabled.</p>
     @elseif ($latestAudit->status === 'failed')
         <p class="mp-sub" style="margin:8px 0 0">The agent could not complete the audit. Check the server agent logs before retrying.</p>
