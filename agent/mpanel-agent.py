@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-import argparse,json,os,shutil,time,urllib.request,pathlib,subprocess
-VERSION="0.4.0"
+import argparse,json,os,shutil,time,urllib.request,urllib.error,pathlib,subprocess
+VERSION="0.4.2"
 TOKEN_FILE="/opt/mpanel-agent/agent-token"
 
 def cpu():
@@ -21,11 +21,27 @@ def disk():
     u=shutil.disk_usage("/"); return round(u.used/u.total*100,2)
 
 def request(url,payload=None,headers=None,method="POST"):
-    h={"Content-Type":"application/json","User-Agent":"mPanel-Agent/"+VERSION}; h.update(headers or {})
+    h={"Content-Type":"application/json","User-Agent":"mPanel-Agent/"+VERSION}
+    h.update(headers or {})
     data=json.dumps(payload).encode() if payload is not None else None
     req=urllib.request.Request(url,data=data,headers=h,method=method)
-    with urllib.request.urlopen(req,timeout=20) as r:
-        return json.loads(r.read().decode())
+    try:
+        with urllib.request.urlopen(req,timeout=20) as r:
+            raw=r.read().decode("utf-8","replace")
+    except urllib.error.HTTPError as e:
+        body=e.read().decode("utf-8","replace").strip()
+        detail=f"HTTP {e.code} for {method} {url}"
+        if body:
+            detail += f": {body[:2000]}"
+        raise RuntimeError(detail) from e
+    except urllib.error.URLError as e:
+        raise RuntimeError(f"Network error for {method} {url}: {e.reason}") from e
+    if not raw:
+        return {}
+    try:
+        return json.loads(raw)
+    except json.JSONDecodeError as e:
+        raise RuntimeError(f"Invalid JSON response from {method} {url}: {raw[:500]}") from e
 
 def save_token(token):
     os.makedirs(os.path.dirname(TOKEN_FILE),exist_ok=True)
@@ -554,8 +570,12 @@ def complete_create_site(job, base, auth):
     domain=str(p.get("domain","")).lower().strip()
     root=str(p.get("document_root",""))
     php=str(p.get("php_version",""))
-    config_path="/etc/nginx/sites-available/"+domain
-    enabled_path="/etc/nginx/sites-enabled/"+domain
+    config_dir=pathlib.Path("/etc/nginx/sites-available")
+    enabled_dir=pathlib.Path("/etc/nginx/sites-enabled")
+    config_path=config_dir/domain
+    enabled_path=enabled_dir/domain
+    created_config=False
+    created_link=False
     try:
         if not valid_domain(domain):
             raise ValueError("Invalid domain supplied.")
@@ -572,7 +592,12 @@ def complete_create_site(job, base, auth):
         root_path.mkdir(parents=True, exist_ok=True)
         index_path=root_path/"index.html"
         if not index_path.exists():
-            index_path.write_text("<!doctype html><html><head><meta charset=\"utf-8\"><title>"+domain+"</title></head><body><h1>"+domain+"</h1><p>Website provisioned by mPanel.</p></body></html>\n")
+            index_path.write_text(
+                "<!doctype html><html><head><meta charset=\"utf-8\"><title>"+domain+
+                "</title></head><body><h1>"+domain+
+                "</h1><p>Website provisioned by mPanel.</p></body></html>\\n",
+                encoding="utf-8"
+            )
 
         nginx_config = """server {
     listen 80;
@@ -585,33 +610,43 @@ def complete_create_site(job, base, auth):
         try_files $uri $uri/ /index.php?$query_string;
     }
 
-    location ~ \.php$ {
+    location ~ \\.php$ {
         include snippets/fastcgi-php.conf;
         fastcgi_pass unix:SOCKET;
     }
 }
 """.replace("DOMAIN", domain).replace("ROOT", root).replace("SOCKET", php_socket)
 
-        pathlib.Path("/etc/nginx/sites-available").mkdir(parents=True, exist_ok=True)
-        pathlib.Path("/etc/nginx/sites-enabled").mkdir(parents=True, exist_ok=True)
-        pathlib.Path(config_path).write_text(nginx_config)
+        config_dir.mkdir(parents=True, exist_ok=True)
+        enabled_dir.mkdir(parents=True, exist_ok=True)
+
+        # Never overwrite a manually managed or unrelated site configuration.
+        if os.path.lexists(config_path):
+            existing=config_path.read_text(encoding="utf-8") if config_path.is_file() and not config_path.is_symlink() else ""
+            if existing != nginx_config:
+                raise ValueError("Nginx site configuration already exists and differs from mPanel's expected configuration; refusing to overwrite it.")
+        else:
+            temp_path=config_dir/("."+domain+".mpanel-tmp")
+            temp_path.write_text(nginx_config, encoding="utf-8")
+            os.replace(temp_path, config_path)
+            created_config=True
 
         if os.path.lexists(enabled_path):
-            if not os.path.islink(enabled_path) or os.path.realpath(enabled_path) != config_path:
+            if not os.path.islink(enabled_path) or os.path.realpath(enabled_path) != str(config_path):
                 raise ValueError("Existing Nginx site link conflicts with the requested site.")
         else:
-            os.symlink(config_path, enabled_path)
+            os.symlink(str(config_path), enabled_path)
+            created_link=True
 
         try:
             run_checked(["nginx","-t"])
+            run_checked(["systemctl","reload","nginx"])
         except Exception:
-            if os.path.islink(enabled_path):
+            if created_link and os.path.islink(enabled_path):
                 os.unlink(enabled_path)
-            if os.path.exists(config_path):
+            if created_config and config_path.exists():
                 os.unlink(config_path)
             raise
-
-        run_checked(["systemctl","reload","nginx"])
 
         request(base+"/api/agent/jobs/"+str(job["id"])+"/complete", {
             "status":"completed",
@@ -620,13 +655,19 @@ def complete_create_site(job, base, auth):
                 "domain":domain,
                 "document_root":root,
                 "php_version":php,
-                "config_path":config_path,
+                "config_path":str(config_path),
                 "mode":"provisioned"
             }
         }, auth)
     except Exception as e:
-        request(base+"/api/agent/jobs/"+str(job["id"])+"/complete",
-                {"status":"failed","error":str(e)},auth)
+        # Preserve the original provisioning error even if reporting to Laravel fails.
+        error=str(e)
+        try:
+            request(base+"/api/agent/jobs/"+str(job["id"])+"/complete",
+                    {"status":"failed","error":error},auth)
+        except Exception as report_error:
+            print("[mPanel] could not report create_site failure:",report_error,flush=True)
+        print("[mPanel] create_site job failed:",error,flush=True)
 
 def load_token():
     try:
