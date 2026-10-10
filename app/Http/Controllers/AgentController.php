@@ -131,6 +131,29 @@ class AgentController extends Controller
                 }
             }
 
+            if ($job->type === 'terminal_isolation_audit' && $data['status'] === 'completed') {
+                $website = Website::find($job->payload['website_id'] ?? null);
+                $audit = $data['result'] ?? [];
+
+                // Audit results may only leave a website blocked. This path can never mark it ready.
+                if (
+                    $website &&
+                    $website->server_id === $server->id &&
+                    (int) ($audit['website_id'] ?? 0) === (int) $website->id &&
+                    ($audit['domain'] ?? null) === $website->domain &&
+                    ($audit['ready'] ?? true) === false
+                ) {
+                    $linuxUser = $audit['linux_user'] ?? null;
+                    $website->update([
+                        'terminal_linux_user' => is_string($linuxUser) && preg_match('/^mpw[0-9a-z]+$/', $linuxUser)
+                            ? $linuxUser
+                            : null,
+                        'terminal_isolation_status' => 'blocked',
+                        'terminal_ready_at' => null,
+                    ]);
+                }
+            }
+
             if ($job->type === 'create_site' && !empty($job->payload['website_id'])) {
                 $website=Website::find($job->payload['website_id']);
 
