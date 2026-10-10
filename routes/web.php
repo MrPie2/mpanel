@@ -1,13 +1,14 @@
 <?php
 
-use App\Http\Controllers\AuthController;
-use App\Http\Controllers\DashboardController;
-use App\Http\Controllers\DatabaseController;
-use App\Http\Controllers\DnsController;
-use App\Http\Controllers\GitController;
-use App\Http\Controllers\ServerController;
-use App\Http\Controllers\WebsiteController;
-use Illuminate\Support\Facades\Route;
+use App\\Http\\Controllers\\AuthController;
+use App\\Http\\Controllers\\DashboardController;
+use App\\Http\\Controllers\\DatabaseController;
+use App\\Http\\Controllers\\DnsController;
+use App\\Http\\Controllers\\GitController;
+use App\\Http\\Controllers\\ServerController;
+use App\\Http\\Controllers\\TerminalController;
+use App\\Http\\Controllers\\WebsiteController;
+use Illuminate\\Support\\Facades\\Route;
 
 Route::post('/webhooks/github/{website}', [GitController::class, 'webhook'])->name('webhooks.github');
 
@@ -21,6 +22,8 @@ Route::middleware('guest')->group(function () {
 Route::middleware('auth')->group(function () {
     Route::get('/dashboard', [DashboardController::class, 'index'])->name('dashboard');
     Route::resource('websites', WebsiteController::class)->only(['index', 'show']);
+    Route::get('/terminal', [TerminalController::class, 'index'])->name('terminal.index');
+    Route::get('/websites/{website}/terminal', [TerminalController::class, 'show'])->name('websites.terminal');
     Route::get('/databases', [DatabaseController::class, 'index'])->name('databases.index');
     Route::get('/databases/create', [DatabaseController::class, 'create'])->name('databases.create');
     Route::post('/databases', [DatabaseController::class, 'store'])->name('databases.store');
