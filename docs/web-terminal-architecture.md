@@ -54,3 +54,13 @@ Do not enable terminal sessions on the current shared-PHP-FPM configuration.
 - `GET /websites/{website}/terminal` displays the terminal workspace after checking ownership.
 
 The start-session control is intentionally disabled until the gateway and the site isolation model are implemented, deployed, and tested. This PR does not claim that interactive shell execution is available.
+
+## Readiness tracking added in the current branch
+
+The `websites` table now has three fields to support a staged rollout:
+
+- `terminal_linux_user`: the server-side managed Linux identity assigned to this website; it must never come from browser input.
+- `terminal_isolation_status`: defaults to `pending`; this branch does not yet have an agent operation that can mark it ready.
+- `terminal_ready_at`: timestamp to record when all required isolation checks have passed.
+
+The UI displays the current isolation status. A default value of `pending` is intentionally fail-closed. Do not set a website to ready manually just to enable the terminal: the future agent implementation must verify the OS account, canonical document root, ownership and permissions, per-site PHP-FPM pool, and sandbox policy before reporting readiness.
