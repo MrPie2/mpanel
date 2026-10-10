@@ -1,14 +1,14 @@
 <?php
 
-use App\\Http\\Controllers\\AuthController;
-use App\\Http\\Controllers\\DashboardController;
-use App\\Http\\Controllers\\DatabaseController;
-use App\\Http\\Controllers\\DnsController;
-use App\\Http\\Controllers\\GitController;
-use App\\Http\\Controllers\\ServerController;
-use App\\Http\\Controllers\\TerminalController;
-use App\\Http\\Controllers\\WebsiteController;
-use Illuminate\\Support\\Facades\\Route;
+use App\Http\Controllers\AuthController;
+use App\Http\Controllers\DashboardController;
+use App\Http\Controllers\DatabaseController;
+use App\Http\Controllers\DnsController;
+use App\Http\Controllers\GitController;
+use App\Http\Controllers\ServerController;
+use App\Http\Controllers\TerminalController;
+use App\Http\Controllers\WebsiteController;
+use Illuminate\Support\Facades\Route;
 
 Route::post('/webhooks/github/{website}', [GitController::class, 'webhook'])->name('webhooks.github');
 
