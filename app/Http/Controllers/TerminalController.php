@@ -2,8 +2,10 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\AgentJob;
 use App\Models\Website;
 use Illuminate\Http\Request;
+use Illuminate\Http\RedirectResponse;
 use Illuminate\View\View;
 
 class TerminalController extends Controller
@@ -22,6 +24,31 @@ class TerminalController extends Controller
     {
         abort_unless($website->server && $website->server->user_id === $request->user()->id, 403);
 
-        return view('terminal.show', compact('website'));
+        $latestAudit = AgentJob::where('server_id', $website->server_id)
+            ->where('type', 'terminal_isolation_audit')
+            ->where('payload->website_id', $website->id)
+            ->latest()
+            ->first();
+
+        return view('terminal.show', compact('website', 'latestAudit'));
+    }
+
+    public function audit(Request $request, Website $website): RedirectResponse
+    {
+        abort_unless($website->server && $website->server->user_id === $request->user()->id, 403);
+
+        AgentJob::create([
+            'server_id' => $website->server_id,
+            'type' => 'terminal_isolation_audit',
+            'payload' => [
+                'website_id' => $website->id,
+                'domain' => $website->domain,
+            ],
+            'status' => 'queued',
+        ]);
+
+        return redirect()
+            ->route('websites.terminal', $website)
+            ->with('status', 'Read-only isolation audit queued. Results will appear here after the server agent processes it.');
     }
 }
