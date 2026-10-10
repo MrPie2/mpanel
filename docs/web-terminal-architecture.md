@@ -42,7 +42,7 @@ The audit checks, without changing the host:
 
 It always reports terminal readiness as blocked because the interactive gateway and resource-enforced PTY sandbox are not implemented. It does not create users, change permissions, rewrite Nginx/PHP-FPM configuration, or mark a website ready. A successful job completion means only that the read-only audit ran—not that terminal execution is safe.
 
-This is currently an agent handler only. A Laravel-side authorized audit-job action, persistence of the audit result, and runtime tests still need to be added. Do not queue jobs with client-controlled website IDs; the control plane must verify that the website belongs to the selected server before creating the job.
+The authenticated terminal workspace now exposes a “Run isolation audit” action. Laravel checks that the website belongs to the signed-in user, creates the job using the website's stored server ID/domain, and displays the latest job report. The completion handler only records a valid report as `blocked` and clears `terminal_ready_at`; it cannot promote a website to ready. The report is available after the agent processes the queued job, so the page may need refreshing. Runtime tests and a live Linux-host audit have not yet been run.
 
 ## Target terminal architecture
 
@@ -68,6 +68,7 @@ This is currently an agent handler only. A Laravel-side authorized audit-job act
 
 - `GET /terminal` lists websites owned through the user's servers.
 - `GET /websites/{website}/terminal` displays the terminal workspace after checking ownership.
+- `POST /websites/{website}/terminal/audit` queues a read-only isolation audit after checking website ownership.
 
 The start-session control is intentionally disabled until the gateway and the site isolation model are implemented, deployed, and tested. This PR does not claim that interactive shell execution is available.
 
