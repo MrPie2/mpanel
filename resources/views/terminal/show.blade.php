@@ -34,7 +34,7 @@
 <div class="mp-terminal-window">
     <div class="mp-terminal-top">
         <span class="mp-terminal-dot"></span><span class="mp-terminal-dot"></span><span class="mp-terminal-dot"></span>
-        <span style="margin-left:8px;font-size:12px;color:#9daf a5">{{ $website->domain }} · Shell preview</span>
+        <span style="margin-left:8px;font-size:12px;color:#9dafa5">{{ $website->domain }} · Shell preview</span>
         <span style="margin-left:auto;font-size:11px;color:#d7b36a">Gateway not configured</span>
     </div>
     <div class="mp-terminal-body">
