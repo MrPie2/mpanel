@@ -28,6 +28,22 @@ The provisioning migration must be designed for existing sites as well as new si
 
 Do not enable terminal sessions on the current shared-PHP-FPM configuration.
 
+## Read-only agent preflight added
+
+The Python agent now recognizes the internal `terminal_isolation_audit` job type. Its payload is expected to contain the server-side `website_id` and validated `domain`. The agent derives the proposed Linux username from the numeric website ID; it does not accept a username or filesystem path from the caller.
+
+The audit checks, without changing the host:
+
+- that `/var/www/<domain>` exists as the expected canonical directory and is not itself a symlink;
+- whether the deterministic non-root site account exists;
+- whether the document-root owner and write permissions match the initial policy;
+- whether a per-site PHP-FPM pool declares the expected user/group;
+- whether the Nginx vhost references that pool's socket.
+
+It always reports terminal readiness as blocked because the interactive gateway and resource-enforced PTY sandbox are not implemented. It does not create users, change permissions, rewrite Nginx/PHP-FPM configuration, or mark a website ready. A successful job completion means only that the read-only audit ran—not that terminal execution is safe.
+
+This is currently an agent handler only. A Laravel-side authorized audit-job action, persistence of the audit result, and runtime tests still need to be added. Do not queue jobs with client-controlled website IDs; the control plane must verify that the website belongs to the selected server before creating the job.
+
 ## Target terminal architecture
 
 1. The authenticated Laravel controller authorizes the requested website through its server owner before issuing a short-lived, single-use session ticket.
