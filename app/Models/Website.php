@@ -8,7 +8,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class Website extends Model
 {
-    protected $fillable=['server_id','domain','document_root','php_version','status','ssl_enabled','ssl_issued_at','ssl_expires_at'];
+    protected $fillable=['server_id','domain','document_root','php_version','status','ssl_enabled','ssl_issued_at','ssl_expires_at','terminal_linux_user','terminal_isolation_status','terminal_ready_at'];
 
     protected function casts(): array
     {
@@ -16,6 +16,7 @@ class Website extends Model
             'ssl_enabled' => 'boolean',
             'ssl_issued_at' => 'datetime',
             'ssl_expires_at' => 'datetime',
+            'terminal_ready_at' => 'datetime',
         ];
     }
 

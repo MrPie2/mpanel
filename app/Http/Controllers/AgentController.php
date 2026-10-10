@@ -131,6 +131,64 @@ class AgentController extends Controller
                 }
             }
 
+            if ($job->type === 'terminal_isolation_audit' && $data['status'] === 'completed') {
+                $website = Website::find($job->payload['website_id'] ?? null);
+                $audit = $data['result'] ?? [];
+
+                // Treat agent output as untrusted input. A successful audit job is not
+                // sufficient: require the complete read-only report and all expected checks.
+                $requiredChecks = [
+                    'canonical_document_root',
+                    'dedicated_unprivileged_linux_account',
+                    'document_root_ownership',
+                    'dedicated_php_fpm_pool',
+                    'nginx_uses_site_php_socket',
+                    'terminal_gateway_and_sandbox',
+                ];
+                $checks = $audit['checks'] ?? null;
+                $checkNames = is_array($checks)
+                    ? array_column(array_filter($checks, fn ($check) => is_array($check)), 'name')
+                    : [];
+                $checksAreWellFormed = is_array($checks)
+                    && count($checks) === count($requiredChecks)
+                    && count(array_unique($checkNames)) === count($requiredChecks)
+                    && empty(array_diff($requiredChecks, $checkNames))
+                    && collect($checks)->every(fn ($check) =>
+                        is_array($check)
+                        && is_string($check['name'] ?? null)
+                        && is_bool($check['passed'] ?? null)
+                        && is_string($check['detail'] ?? null)
+                    );
+                $gatewayCheck = is_array($checks)
+                    ? collect($checks)->firstWhere('name', 'terminal_gateway_and_sandbox')
+                    : null;
+
+                // This branch must never promote a website to ready. The gateway
+                // check is required to fail until a sandboxed PTY implementation exists.
+                if (
+                    $website &&
+                    $website->server_id === $server->id &&
+                    (int) ($audit['website_id'] ?? 0) === (int) $website->id &&
+                    ($audit['domain'] ?? null) === $website->domain &&
+                    ($audit['status'] ?? null) === 'blocked' &&
+                    ($audit['ready'] ?? true) === false &&
+                    ($audit['read_only'] ?? false) === true &&
+                    $checksAreWellFormed &&
+                    is_array($gatewayCheck) &&
+                    ($gatewayCheck['passed'] ?? true) === false
+                ) {
+                    $linuxUser = $audit['linux_user'] ?? null;
+                    $expectedLinuxUser = 'mpw' . base_convert((string) $website->id, 10, 36);
+                    $website->update([
+                        'terminal_linux_user' => is_string($linuxUser) && hash_equals($expectedLinuxUser, $linuxUser)
+                            ? $linuxUser
+                            : null,
+                        'terminal_isolation_status' => 'blocked',
+                        'terminal_ready_at' => null,
+                    ]);
+                }
+            }
+
             if ($job->type === 'create_site' && !empty($job->payload['website_id'])) {
                 $website=Website::find($job->payload['website_id']);
 
