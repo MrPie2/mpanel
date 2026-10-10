@@ -788,7 +788,9 @@ def terminal_filesystem_inventory(root_path, max_entries=50000):
         try:
             info = path.lstat()
         except OSError:
+            # A failed lstat means this entry was not inventoried reliably.
             summary["unreadable_paths"] += 1
+            summary["complete"] = False
             return True
         owners[str(info.st_uid)] += 1
         if stat.S_ISLNK(info.st_mode):
